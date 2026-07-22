@@ -1,17 +1,15 @@
 import React, { useState, useEffect } from 'react'
-import { fetchGapData, filterGaps, getMockGaps } from '../services/gapApiService'
-import { DEFAULT_GAP_FILTER } from '../types'
-import type { GapData, GapFilterConfig } from '../types'
+import { fetchGapData, filterGaps, getMockGaps, DEFAULT_GAP_FILTER } from '../services/gapApiService.jsx'
 import { RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Activity, Filter } from 'lucide-react'
 
 const DEFAULT_TICKERS = ['AAPL', 'TSLA', 'NVDA', 'AMD', 'META', 'PLTR', 'INTC', 'BA', 'MSFT', 'GOOGL']
 
 export default function GapScanner() {
-  const [gaps, setGaps] = useState<GapData[]>([])
-  const [filter, setFilter] = useState<GapFilterConfig>(DEFAULT_GAP_FILTER)
+  const [gaps, setGaps] = useState([])
+  const [filter, setFilter] = useState(DEFAULT_GAP_FILTER)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [lastScan, setLastScan] = useState<string>('')
+  const [error, setError] = useState(null)
+  const [lastScan, setLastScan] = useState('')
   const [usingMock, setUsingMock] = useState(false)
 
   const scan = async () => {
@@ -21,7 +19,7 @@ export default function GapScanner() {
 
     try {
       console.log('Starting API scan...')
-      const results: GapData[] = []
+      const results = []
       let apiErrors = 0
 
       for (const ticker of DEFAULT_TICKERS) {
@@ -61,7 +59,7 @@ export default function GapScanner() {
 
   useEffect(() => { scan() }, [])
 
-  const getAlertColors = (level: GapData['alertLevel']) => {
+  const getAlertColors = (level) => {
     switch (level) {
       case 'BREAKOUT': return 'bg-red-500/10 border-red-500/30 text-red-400'
       case 'ALERT':    return 'bg-amber-500/10 border-amber-500/30 text-amber-400'
@@ -70,7 +68,7 @@ export default function GapScanner() {
     }
   }
 
-  const getBadgeColor = (level: GapData['alertLevel']) => {
+  const getBadgeColor = (level) => {
     switch (level) {
       case 'BREAKOUT': return 'bg-red-500 text-white'
       case 'ALERT':    return 'bg-amber-500 text-white'
