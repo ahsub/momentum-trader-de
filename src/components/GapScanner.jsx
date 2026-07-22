@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react'
-import { fetchGapData, filterGaps, getMockGaps, DEFAULT_GAP_FILTER } from '../services/gapApiService.jsx'
+import React, { useState, useEffect, useRef } from 'react'
+import { scanAllGaps, filterGaps, getMockGaps, DEFAULT_GAP_FILTER } from '../services/gapApiService.jsx'
 import { RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Activity, Filter } from 'lucide-react'
 
 const DEFAULT_TICKERS = ['AAPL', 'TSLA', 'NVDA', 'AMD', 'META', 'PLTR', 'INTC', 'BA', 'MSFT', 'GOOGL']
@@ -12,29 +12,21 @@ export default function GapScanner() {
   const [lastScan, setLastScan] = useState('')
   const [usingMock, setUsingMock] = useState(false)
 
+  // StrictMode-Safe: Verhindere doppelte API-Calls
+  const hasScanned = useRef(false)
+
   const scan = async () => {
+    if (loading) return // Verhindere parallele Scans
     setLoading(true)
     setError(null)
     setUsingMock(false)
 
     try {
-      console.log('Starting API scan...')
-      const results = []
-      let apiErrors = 0
+      console.log('Starting batch API scan...')
+      const results = await scanAllGaps(DEFAULT_TICKERS)
 
-      for (const ticker of DEFAULT_TICKERS) {
-        const result = await fetchGapData(ticker)
-        if (result) {
-          results.push(result)
-        } else {
-          apiErrors++
-        }
-      }
-
-      // Wenn alle APIs failen → Mock-Daten als Fallback
-      if (results.length === 0) {
-        console.warn('All APIs failed, using mock data')
-        results.push(...getMockGaps())
+      // Prüfe ob Mock-Daten verwendet wurden
+      if (results.length > 0 && results[0].source === 'Mock') {
         setUsingMock(true)
       }
 
@@ -43,8 +35,10 @@ export default function GapScanner() {
       setGaps(filtered)
       setLastScan(new Date().toLocaleTimeString('de-DE'))
 
+      // Zähle API-Fehler
+      const apiErrors = DEFAULT_TICKERS.length - results.filter(r => r.source !== 'Mock').length
       if (apiErrors > 0 && !usingMock) {
-        setError(`${apiErrors}/${DEFAULT_TICKERS.length} Tickers konnten nicht geladen werden.`)
+        setError(`${apiErrors}/${DEFAULT_TICKERS.length} Tickers von Fallback-API geladen.`)
       }
 
     } catch (err) {
@@ -57,7 +51,13 @@ export default function GapScanner() {
     }
   }
 
-  useEffect(() => { scan() }, [])
+  useEffect(() => {
+    // StrictMode-Safe: Nur einmal scannen
+    if (!hasScanned.current) {
+      hasScanned.current = true
+      scan()
+    }
+  }, [])
 
   const getAlertColors = (level) => {
     switch (level) {
@@ -164,7 +164,7 @@ export default function GapScanner() {
         <div className="text-center py-12 text-slate-500">
           <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-4" />
           <p>Lade echte Daten von APIs...</p>
-          <p className="text-xs mt-2">Twelvedata → Finnhub → Mock Fallback</p>
+          <p className="text-xs mt-2">Twelvedata Batch → Finnhub Fallback</p>
         </div>
       )}
 
