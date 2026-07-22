@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { Rocket, TrendingUp, Clock, Shield, Activity, ChevronRight } from 'lucide-react'
+import { Rocket, TrendingUp, Clock, Shield, Activity, ChevronRight, Zap } from 'lucide-react'
 import MomentumPanel from './components/MomentumPanel'
 import TrendPanel from './components/TrendPanel'
 import OrbPanel from './components/OrbPanel'
 import WatchlistPanel from './components/WatchlistPanel'
+import GapScanner from './components/GapScanner'
 
 function App() {
   const [activeTab, setActiveTab] = useState('momentum')
@@ -13,6 +14,7 @@ function App() {
     { id: 'momentum', label: 'Momentum (KO)', icon: Rocket },
     { id: 'trend', label: 'Trendfolge', icon: TrendingUp },
     { id: 'orb', label: 'ORB-Setup', icon: Clock },
+    { id: 'scanner', label: 'Gap Scanner', icon: Zap },
   ]
 
   return (
@@ -52,14 +54,14 @@ function App() {
       {/* Tab Navigation */}
       <div className="border-b border-slate-800">
         <div className="max-w-7xl mx-auto px-4">
-          <div className="flex gap-1">
+          <div className="flex gap-1 overflow-x-auto">
             {tabs.map(tab => {
               const Icon = tab.icon
               return (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-5 py-3 text-sm font-semibold transition-all border-b-2 -mb-px ${
+                  className={`flex items-center gap-2 px-5 py-3 text-sm font-semibold transition-all border-b-2 -mb-px whitespace-nowrap ${
                     activeTab === tab.id
                       ? 'border-accent text-accent bg-accent/10'
                       : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
@@ -79,6 +81,7 @@ function App() {
         {activeTab === 'momentum' && <MomentumPanel />}
         {activeTab === 'trend' && <TrendPanel />}
         {activeTab === 'orb' && <OrbPanel />}
+        {activeTab === 'scanner' && <GapScanner />}
       </main>
 
       {/* Footer */}
