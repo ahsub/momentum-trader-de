@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useCallback } from 'react'
 import { scanAllGaps, filterGaps, getMockGaps, DEFAULT_GAP_FILTER } from '../services/gapApiService.jsx'
-import { RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Activity, Filter } from 'lucide-react'
+import { RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Activity, Filter, Play } from 'lucide-react'
 
 const DEFAULT_TICKERS = ['AAPL', 'TSLA', 'NVDA', 'AMD', 'META', 'PLTR', 'INTC', 'BA', 'MSFT', 'GOOGL']
 
@@ -11,12 +11,10 @@ export default function GapScanner() {
   const [error, setError] = useState(null)
   const [lastScan, setLastScan] = useState('')
   const [usingMock, setUsingMock] = useState(false)
+  const [hasScanned, setHasScanned] = useState(false)
 
-  // StrictMode-Safe: Verhindere doppelte API-Calls
-  const hasScanned = useRef(false)
-
-  const scan = async () => {
-    if (loading) return // Verhindere parallele Scans
+  const scan = useCallback(async () => {
+    if (loading) return
     setLoading(true)
     setError(null)
     setUsingMock(false)
@@ -25,20 +23,18 @@ export default function GapScanner() {
       console.log('Starting batch API scan...')
       const results = await scanAllGaps(DEFAULT_TICKERS)
 
-      // Prüfe ob Mock-Daten verwendet wurden
       if (results.length > 0 && results[0].source === 'Mock') {
         setUsingMock(true)
       }
 
-      // Filter anwenden
       const filtered = filterGaps(results, filter)
       setGaps(filtered)
       setLastScan(new Date().toLocaleTimeString('de-DE'))
+      setHasScanned(true)
 
-      // Zähle API-Fehler
-      const apiErrors = DEFAULT_TICKERS.length - results.filter(r => r.source !== 'Mock').length
-      if (apiErrors > 0 && !usingMock) {
-        setError(`${apiErrors}/${DEFAULT_TICKERS.length} Tickers von Fallback-API geladen.`)
+      const realDataCount = results.filter(r => r.source !== 'Mock').length
+      if (realDataCount < DEFAULT_TICKERS.length && !usingMock) {
+        setError(`${DEFAULT_TICKERS.length - realDataCount}/${DEFAULT_TICKERS.length} von Fallback-API geladen.`)
       }
 
     } catch (err) {
@@ -46,18 +42,11 @@ export default function GapScanner() {
       setError('Fehler beim Scannen. Fallback auf Mock-Daten.')
       setGaps(getMockGaps())
       setUsingMock(true)
+      setHasScanned(true)
     } finally {
       setLoading(false)
     }
-  }
-
-  useEffect(() => {
-    // StrictMode-Safe: Nur einmal scannen
-    if (!hasScanned.current) {
-      hasScanned.current = true
-      scan()
-    }
-  }, [])
+  }, [loading, filter, usingMock])
 
   const getAlertColors = (level) => {
     switch (level) {
@@ -87,7 +76,7 @@ export default function GapScanner() {
             Pre-Market Gap Scanner
           </h2>
           <p className="text-sm text-slate-500 mt-1">
-            {lastScan ? `Letzter Scan: ${lastScan}` : 'Scan wird durchgeführt...'}
+            {lastScan ? `Letzter Scan: ${lastScan}` : 'Noch nicht gescannt'}
             {usingMock && <span className="ml-2 text-amber-400">⚠️ Mock-Daten</span>}
           </p>
         </div>
@@ -96,8 +85,8 @@ export default function GapScanner() {
           disabled={loading}
           className="flex items-center gap-2 px-4 py-2 bg-accent text-slate-950 rounded-lg font-semibold hover:opacity-90 transition-opacity disabled:opacity-50"
         >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          {loading ? 'Scanning...' : 'Neu scannen'}
+          {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+          {loading ? 'Scanning...' : hasScanned ? 'Neu scannen' : 'Scan starten'}
         </button>
       </div>
 
@@ -159,6 +148,16 @@ export default function GapScanner() {
         </div>
       </div>
 
+      {/* Initial State */}
+      {!hasScanned && !loading && (
+        <div className="text-center py-16 text-slate-500">
+          <Activity className="w-12 h-12 mx-auto mb-4 opacity-50" />
+          <p className="text-lg font-semibold mb-2">Gap Scanner bereit</p>
+          <p className="text-sm">Klicke "Scan starten" um echte Marktdaten zu laden.</p>
+          <p className="text-xs mt-2 opacity-70">Twelvedata → Finnhub → Mock Fallback</p>
+        </div>
+      )}
+
       {/* Loading */}
       {loading && (
         <div className="text-center py-12 text-slate-500">
@@ -169,7 +168,7 @@ export default function GapScanner() {
       )}
 
       {/* Results */}
-      {!loading && gaps.length === 0 && (
+      {hasScanned && !loading && gaps.length === 0 && (
         <div className="text-center py-12 text-slate-500">
           Keine Gap-Setups gefunden. Passe die Filter an.
         </div>
