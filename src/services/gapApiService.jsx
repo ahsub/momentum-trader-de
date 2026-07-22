@@ -1,57 +1,86 @@
 // ============================================
-// Gap API Service - Twelvedata → Finnhub → Mock Fallback
+// Gap API Service v2 - Batch + Rate-Limiting + StrictMode-Safe
 // ============================================
 
 const TWELVEDATA_KEY = import.meta.env.VITE_TWELVEDATA_KEY || ''
 const FINNHUB_KEY = import.meta.env.VITE_FINNHUB_KEY || ''
 
-// Mock-Daten als Fallback (nur wenn APIs failen)
+// Rate-Limiting: Max 8 Calls/Min bei Twelvedata Free
+const RATE_LIMIT_MS = 8000 // 7.5s Pause = 8 Calls/Min
+let lastCallTime = 0
+
+async function rateLimit() {
+  const now = Date.now()
+  const timeSinceLastCall = now - lastCallTime
+  if (timeSinceLastCall < RATE_LIMIT_MS) {
+    await new Promise(r => setTimeout(r, RATE_LIMIT_MS - timeSinceLastCall))
+  }
+  lastCallTime = Date.now()
+}
+
+// Mock-Daten als Fallback
 const MOCK_GAPS = [
   { ticker: 'NVDA', prevClose: 875.30, preMarketOpen: 912.00, gapPct: 4.2, gapDirection: 'UP', preMarketVolume: 2500000, avgVolume20d: 45000000, volumeRatio: 3.5, atr14: 12.5, regime: 'BULL_QUIET', setupScore: 85, alertLevel: 'BREAKOUT', timestamp: new Date().toISOString(), source: 'Mock' },
   { ticker: 'AMD', prevClose: 145.20, preMarketOpen: 150.80, gapPct: 3.8, gapDirection: 'UP', preMarketVolume: 1800000, avgVolume20d: 32000000, volumeRatio: 3.2, atr14: 3.8, regime: 'BULL_QUIET', setupScore: 78, alertLevel: 'ALERT', timestamp: new Date().toISOString(), source: 'Mock' },
   { ticker: 'META', prevClose: 485.10, preMarketOpen: 501.50, gapPct: 3.5, gapDirection: 'UP', preMarketVolume: 1200000, avgVolume20d: 28000000, volumeRatio: 2.8, atr14: 8.2, regime: 'BULL_QUIET', setupScore: 72, alertLevel: 'ALERT', timestamp: new Date().toISOString(), source: 'Mock' },
 ]
 
-async function fetchTwelvedata(ticker) {
-  if (!TWELVEDATA_KEY) return null
+// Batch-Request für Twelvedata (mehrere Symbole auf einmal)
+async function fetchTwelvedataBatch(tickers) {
+  if (!TWELVEDATA_KEY || tickers.length === 0) return {}
+
+  await rateLimit()
 
   try {
+    const symbols = tickers.join(',')
     const response = await fetch(
-      `https://api.twelvedata.com/quote?symbol=${ticker}&apikey=${TWELVEDATA_KEY}`
+      `https://api.twelvedata.com/quote?symbol=${symbols}&apikey=${TWELVEDATA_KEY}`
     )
     const data = await response.json()
 
+    // Einzelnes Symbol vs. Batch
     if (data.status === 'error') {
-      console.warn(`Twelvedata error for ${ticker}:`, data.message)
-      return null
+      console.warn('Twelvedata batch error:', data.message)
+      return {}
     }
 
-    const prevClose = parseFloat(data.previous_close)
-    const current = parseFloat(data.close) || parseFloat(data.open)
-    const gapPct = ((current - prevClose) / prevClose) * 100
+    // Wenn nur ein Symbol, wrap in Array
+    const results = Array.isArray(data) ? data : [data]
+    const mapped = {}
 
-    return {
-      ticker: data.symbol,
-      prevClose,
-      preMarketOpen: current,
-      gapPct: Math.abs(gapPct),
-      gapDirection: gapPct >= 0 ? 'UP' : 'DOWN',
-      preMarketVolume: parseInt(data.volume) || 0,
-      avgVolume20d: parseInt(data.average_volume) || 0,
-      volumeRatio: parseInt(data.volume) / (parseInt(data.average_volume) || 1),
-      atr14: 0,
-      regime: 'BULL_QUIET',
-      setupScore: 0,
-      alertLevel: 'INFO',
-      timestamp: new Date().toISOString(),
-      source: 'Twelvedata',
+    for (const item of results) {
+      if (item.status === 'error') continue
+
+      const prevClose = parseFloat(item.previous_close)
+      const current = parseFloat(item.close) || parseFloat(item.open)
+      const gapPct = ((current - prevClose) / prevClose) * 100
+
+      mapped[item.symbol] = {
+        ticker: item.symbol,
+        prevClose,
+        preMarketOpen: current,
+        gapPct: Math.abs(gapPct),
+        gapDirection: gapPct >= 0 ? 'UP' : 'DOWN',
+        preMarketVolume: parseInt(item.volume) || 0,
+        avgVolume20d: parseInt(item.average_volume) || 0,
+        volumeRatio: parseInt(item.volume) / (parseInt(item.average_volume) || 1),
+        atr14: 0,
+        regime: 'BULL_QUIET',
+        setupScore: 0,
+        alertLevel: 'INFO',
+        timestamp: new Date().toISOString(),
+        source: 'Twelvedata',
+      }
     }
+
+    return mapped
   } catch (err) {
-    console.error(`Twelvedata fetch failed for ${ticker}:`, err)
-    return null
+    console.error('Twelvedata batch fetch failed:', err)
+    return {}
   }
 }
 
+// Einzelner Finnhub-Request
 async function fetchFinnhub(ticker) {
   if (!FINNHUB_KEY) return null
 
@@ -113,38 +142,48 @@ function determineAlertLevel(score, gapPct) {
   return 'INFO'
 }
 
-export async function fetchGapData(ticker) {
-  console.log(`Fetching gap data for ${ticker}...`)
-
-  const td = await fetchTwelvedata(ticker)
-  if (td) {
-    td.setupScore = calculateSetupScore(td)
-    td.alertLevel = determineAlertLevel(td.setupScore, td.gapPct)
-    console.log(`✅ Twelvedata success for ${ticker}:`, td.gapPct.toFixed(1) + '%')
-    return td
-  }
-
-  const fh = await fetchFinnhub(ticker)
-  if (fh) {
-    fh.setupScore = calculateSetupScore(fh)
-    fh.alertLevel = determineAlertLevel(fh.setupScore, fh.gapPct)
-    console.log(`✅ Finnhub success for ${ticker}:`, fh.gapPct.toFixed(1) + '%')
-    return fh
-  }
-
-  console.error(`❌ All APIs failed for ${ticker}`)
-  return null
-}
-
+// Hauptfunktion: Batch-Scan für alle Tickers
 export async function scanAllGaps(tickers) {
+  console.log(`Starting batch scan for ${tickers.length} tickers...`)
   const gaps = []
 
-  for (const ticker of tickers) {
-    const result = await fetchGapData(ticker)
-    if (result) gaps.push(result)
-    await new Promise(r => setTimeout(r, 1000)) // Rate-Limit
+  // 1. Versuche Twelvedata Batch (max 8 Symbole pro Call)
+  const batchSize = 8
+  const twelvedataResults = {}
+
+  for (let i = 0; i < tickers.length; i += batchSize) {
+    const batch = tickers.slice(i, i + batchSize)
+    const batchResults = await fetchTwelvedataBatch(batch)
+    Object.assign(twelvedataResults, batchResults)
   }
 
+  // 2. Für fehlende Tickers: Finnhub Fallback
+  const missingTickers = tickers.filter(t => !twelvedataResults[t])
+
+  for (const ticker of missingTickers) {
+    const fh = await fetchFinnhub(ticker)
+    if (fh) {
+      twelvedataResults[ticker] = fh
+    }
+  }
+
+  // 3. Setup-Scores berechnen
+  for (const ticker of tickers) {
+    const gap = twelvedataResults[ticker]
+    if (gap) {
+      gap.setupScore = calculateSetupScore(gap)
+      gap.alertLevel = determineAlertLevel(gap.setupScore, gap.gapPct)
+      gaps.push(gap)
+    }
+  }
+
+  // 4. Wenn gar nichts kam → Mock Fallback
+  if (gaps.length === 0) {
+    console.warn('All APIs failed, using mock data')
+    gaps.push(...getMockGaps())
+  }
+
+  console.log(`Scan complete: ${gaps.length} gaps found`)
   return gaps
 }
 
