@@ -1,12 +1,14 @@
 // ============================================
-// Gap API Service v2 - Batch + Rate-Limiting + StrictMode-Safe
+// Gap API Service v3 - Conservative Rate-Limiting
 // ============================================
 
 const TWELVEDATA_KEY = import.meta.env.VITE_TWELVEDATA_KEY || ''
 const FINNHUB_KEY = import.meta.env.VITE_FINNHUB_KEY || ''
 
-// Rate-Limiting: Max 8 Calls/Min bei Twelvedata Free
-const RATE_LIMIT_MS = 8000 // 7.5s Pause = 8 Calls/Min
+// Conservative: Max 5 symbols per batch (Free Plan = 8 credits/min)
+const BATCH_SIZE = 5
+const RATE_LIMIT_MS = 10000 // 10s between calls
+
 let lastCallTime = 0
 
 async function rateLimit() {
@@ -25,7 +27,6 @@ const MOCK_GAPS = [
   { ticker: 'META', prevClose: 485.10, preMarketOpen: 501.50, gapPct: 3.5, gapDirection: 'UP', preMarketVolume: 1200000, avgVolume20d: 28000000, volumeRatio: 2.8, atr14: 8.2, regime: 'BULL_QUIET', setupScore: 72, alertLevel: 'ALERT', timestamp: new Date().toISOString(), source: 'Mock' },
 ]
 
-// Batch-Request für Twelvedata (mehrere Symbole auf einmal)
 async function fetchTwelvedataBatch(tickers) {
   if (!TWELVEDATA_KEY || tickers.length === 0) return {}
 
@@ -38,13 +39,11 @@ async function fetchTwelvedataBatch(tickers) {
     )
     const data = await response.json()
 
-    // Einzelnes Symbol vs. Batch
     if (data.status === 'error') {
       console.warn('Twelvedata batch error:', data.message)
       return {}
     }
 
-    // Wenn nur ein Symbol, wrap in Array
     const results = Array.isArray(data) ? data : [data]
     const mapped = {}
 
@@ -80,7 +79,6 @@ async function fetchTwelvedataBatch(tickers) {
   }
 }
 
-// Einzelner Finnhub-Request
 async function fetchFinnhub(ticker) {
   if (!FINNHUB_KEY) return null
 
@@ -142,22 +140,20 @@ function determineAlertLevel(score, gapPct) {
   return 'INFO'
 }
 
-// Hauptfunktion: Batch-Scan für alle Tickers
 export async function scanAllGaps(tickers) {
   console.log(`Starting batch scan for ${tickers.length} tickers...`)
   const gaps = []
 
-  // 1. Versuche Twelvedata Batch (max 8 Symbole pro Call)
-  const batchSize = 8
+  // 1. Twelvedata Batch (max 5 symbols per call)
   const twelvedataResults = {}
 
-  for (let i = 0; i < tickers.length; i += batchSize) {
-    const batch = tickers.slice(i, i + batchSize)
+  for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
+    const batch = tickers.slice(i, i + BATCH_SIZE)
     const batchResults = await fetchTwelvedataBatch(batch)
     Object.assign(twelvedataResults, batchResults)
   }
 
-  // 2. Für fehlende Tickers: Finnhub Fallback
+  // 2. Finnhub Fallback for missing tickers
   const missingTickers = tickers.filter(t => !twelvedataResults[t])
 
   for (const ticker of missingTickers) {
@@ -167,7 +163,7 @@ export async function scanAllGaps(tickers) {
     }
   }
 
-  // 3. Setup-Scores berechnen
+  // 3. Calculate setup scores
   for (const ticker of tickers) {
     const gap = twelvedataResults[ticker]
     if (gap) {
@@ -177,7 +173,7 @@ export async function scanAllGaps(tickers) {
     }
   }
 
-  // 4. Wenn gar nichts kam → Mock Fallback
+  // 4. Mock Fallback if nothing worked
   if (gaps.length === 0) {
     console.warn('All APIs failed, using mock data')
     gaps.push(...getMockGaps())
