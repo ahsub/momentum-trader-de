@@ -1,98 +1,121 @@
-import { useState } from 'react'
-import { Rocket, TrendingUp, Clock, Shield, Activity, ChevronRight, Zap } from 'lucide-react'
-import MomentumPanel from './components/MomentumPanel'
-import TrendPanel from './components/TrendPanel'
-import OrbPanel from './components/OrbPanel'
-import WatchlistPanel from './components/WatchlistPanel'
-import GapScanner from './components/GapScanner'
+import React, { useState } from 'react';
+import MomentumPanel from './components/MomentumPanel.jsx';
+import TrendPanel from './components/TrendPanel.jsx';
+import OrbPanel from './components/OrbPanel.jsx';
+import WatchlistPanel from './components/WatchlistPanel.jsx';
+import GapScanner from './components/GapScanner.jsx';
+import RegimeBadge from './components/RegimeBadge.jsx';
+import RiskScoreBar from './components/RiskScoreBar.jsx';
+import PositionGate from './components/PositionGate.jsx';
+import CircuitBreakerAlert from './components/CircuitBreakerAlert.jsx';
+import McmStorePanel from './components/McmStorePanel.jsx';
 
-function App() {
-  const [activeTab, setActiveTab] = useState('momentum')
-  const [showWatchlist, setShowWatchlist] = useState(false)
+const TABS = [
+  { id: 'momentum', label: 'Momentum', icon: '📈' },
+  { id: 'trend', label: 'Trend', icon: '📊' },
+  { id: 'orb', label: 'ORB', icon: '⏰' },
+  { id: 'watchlist', label: 'Watchlist', icon: '👁️' },
+  { id: 'gapscanner', label: 'Gap Scanner', icon: '🔍' },
+];
 
-  const tabs = [
-    { id: 'momentum', label: 'Momentum (KO)', icon: Rocket },
-    { id: 'trend', label: 'Trendfolge', icon: TrendingUp },
-    { id: 'orb', label: 'ORB-Setup', icon: Clock },
-    { id: 'scanner', label: 'Gap Scanner', icon: Zap },
-  ]
-
+export default function App() {
+  const [activeTab, setActiveTab] = useState('momentum');
+  const [showDevPanel, setShowDevPanel] = useState(false);
+  
+  const renderPanel = () => {
+    switch (activeTab) {
+      case 'momentum': return <MomentumPanel />;
+      case 'trend': return <TrendPanel />;
+      case 'orb': return <OrbPanel />;
+      case 'watchlist': return <WatchlistPanel />;
+      case 'gapscanner': return <GapScanner />;
+      default: return <MomentumPanel />;
+    }
+  };
+  
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200">
-      {/* Header */}
-      <header className="border-b border-slate-800 bg-slate-900/50 backdrop-blur sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-accent/20 flex items-center justify-center">
-              <Activity className="w-5 h-5 text-accent" />
+      {/* HEADER */}
+      <header className="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-lg border-b border-slate-800">
+        <div className="max-w-7xl mx-auto px-4 py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-blue-600 flex items-center justify-center text-white font-black text-sm shadow-lg shadow-emerald-500/20">
+                MT
+              </div>
+              <div>
+                <h1 className="text-sm font-bold text-slate-100 tracking-tight">Momentum Trader Pro</h1>
+                <p className="text-[10px] text-slate-500">v2.0.0 • Phase 4</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-xl font-bold tracking-tight">Momentum & Trend Trader</h1>
-              <p className="text-xs text-slate-500">Deutscher Markt · KO-Zertifikate · Xetra 09:00 MEZ</p>
+            
+            <div className="flex items-center gap-4">
+              <RegimeBadge />
+              <div className="hidden sm:block w-48">
+                <RiskScoreBar />
+              </div>
             </div>
+            
+            <button
+              onClick={() => setShowDevPanel(!showDevPanel)}
+              className={`
+                px-2 py-1 rounded text-[10px] font-mono transition-colors
+                ${showDevPanel ? 'bg-emerald-900/50 text-emerald-400' : 'bg-slate-800 text-slate-500 hover:text-slate-300'}
+              `}
+            >
+              {showDevPanel ? 'DEV ON' : 'DEV'}
+            </button>
           </div>
-          <button
-            onClick={() => setShowWatchlist(!showWatchlist)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition-colors text-sm font-medium"
-          >
-            <Shield className="w-4 h-4" />
-            Watchlist
-            <ChevronRight className={`w-4 h-4 transition-transform ${showWatchlist ? 'rotate-90' : ''}`} />
-          </button>
         </div>
       </header>
-
-      {/* Watchlist Sidebar */}
-      {showWatchlist && (
-        <div className="border-b border-slate-800 bg-slate-900">
-          <div className="max-w-7xl mx-auto px-4 py-4">
-            <WatchlistPanel />
-          </div>
+      
+      {/* DEV PANEL */}
+      {showDevPanel && (
+        <div className="max-w-7xl mx-auto px-4 pt-4">
+          <McmStorePanel />
         </div>
       )}
-
-      {/* Tab Navigation */}
-      <div className="border-b border-slate-800">
+      
+      {/* OVERLAYS */}
+      <PositionGate />
+      <CircuitBreakerAlert />
+      
+      {/* TABS */}
+      <nav className="sticky top-[65px] z-30 bg-slate-900/80 backdrop-blur border-b border-slate-800">
         <div className="max-w-7xl mx-auto px-4">
-          <div className="flex gap-1 overflow-x-auto">
-            {tabs.map(tab => {
-              const Icon = tab.icon
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-5 py-3 text-sm font-semibold transition-all border-b-2 -mb-px whitespace-nowrap ${
-                    activeTab === tab.id
-                      ? 'border-accent text-accent bg-accent/10'
-                      : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
-                  }`}
-                >
-                  <Icon className="w-4 h-4" />
-                  {tab.label}
-                </button>
-              )
-            })}
+          <div className="flex gap-1 overflow-x-auto scrollbar-hide">
+            {TABS.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`
+                  relative px-4 py-3 text-sm font-medium whitespace-nowrap transition-all
+                  ${activeTab === tab.id ? 'text-emerald-400' : 'text-slate-500 hover:text-slate-300'}
+                `}
+              >
+                <span className="mr-1.5">{tab.icon}</span>
+                {tab.label}
+                {activeTab === tab.id && (
+                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-500 rounded-t-full"></span>
+                )}
+              </button>
+            ))}
           </div>
         </div>
-      </div>
-
-      {/* Main Content */}
+      </nav>
+      
+      {/* MAIN */}
       <main className="max-w-7xl mx-auto px-4 py-6">
-        {activeTab === 'momentum' && <MomentumPanel />}
-        {activeTab === 'trend' && <TrendPanel />}
-        {activeTab === 'orb' && <OrbPanel />}
-        {activeTab === 'scanner' && <GapScanner />}
+        {renderPanel()}
       </main>
-
-      {/* Footer */}
-      <footer className="border-t border-slate-800 mt-12 py-6">
-        <div className="max-w-7xl mx-auto px-4 text-center text-sm text-slate-500">
-          <p>⚠️ Hinweis: Trading birgt erhebliche Risiken. Dieses Tool dient ausschließlich der Analyse.</p>
-          <p className="mt-1">Keine Anlageberatung. Verluste des eingesetzten Kapitals sind möglich.</p>
+      
+      {/* FOOTER */}
+      <footer className="border-t border-slate-800 mt-auto">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between text-[10px] text-slate-600">
+          <span>Momentum Trader Pro v2.0.0</span>
+          <span>github.com/ahsub/momentum-trader-de</span>
         </div>
       </footer>
     </div>
-  )
+  );
 }
-
-export default App
