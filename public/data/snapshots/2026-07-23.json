@@ -1,0 +1,30 @@
+{
+  "date": "2026-07-23",
+  "vix": {
+    "current": 19.21,
+    "ma20": 17.0,
+    "percentile": 90.6
+  },
+  "spx": {
+    "current": 7418.43,
+    "ma50": 7472.0,
+    "ma200": 7002.42,
+    "aboveMa50": false,
+    "aboveMa200": true,
+    "trend": "bull"
+  },
+  "breadth": {
+    "nyaCurrent": 23882.24,
+    "nyaChangePercent": -0.16,
+    "volume": 0,
+    "volumeMa20": 5099308500
+  },
+  "treasury10y": 4.7,
+  "dxy": 101.46,
+  "computed": {
+    "regime": "BULL_QUIET",
+    "riskScore": 30,
+    "circuitBreaker": false,
+    "timestamp": "2026-07-24T00:35:26.086283"
+  }
+}
