@@ -4,10 +4,11 @@ import ImportWizard from './ImportWizard';
 import PortfolioDashboard from './PortfolioDashboard';
 import KIAdvisorPanel from './KIAdvisorPanel';
 import PositionDetailPanel from './PositionDetailPanel';
+import OptionsAdvisorPanel from './OptionsAdvisorPanel';
 
 /**
  * PortfolioPanel - Main integration component
- * Combines Import, Dashboard, KI-Advisor, and Position Detail
+ * Combines Import, Dashboard, KI-Advisor, Options-Advisor, and Position Detail
  */
 export default function PortfolioPanel({ className = '' }) {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -19,6 +20,7 @@ export default function PortfolioPanel({ className = '' }) {
   const tabs = [
     { id: 'dashboard', label: 'Dashboard', icon: '📊' },
     { id: 'advisor', label: 'KI-Advisor', icon: '🤖' },
+    { id: 'options', label: 'Options Advisor', icon: '🎯' },
     { id: 'history', label: 'Trade-Historie', icon: '📜' },
   ];
 
@@ -81,6 +83,10 @@ export default function PortfolioPanel({ className = '' }) {
 
             {activeTab === 'advisor' && (
               <KIAdvisorPanel />
+            )}
+
+            {activeTab === 'options' && (
+              <OptionsAdvisorPanel />
             )}
 
             {activeTab === 'history' && (
