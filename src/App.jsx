@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import MomentumPanel from './components/MomentumPanel.jsx';
 import TrendPanel from './components/TrendPanel.jsx';
 import OrbPanel from './components/OrbPanel.jsx';
@@ -8,6 +8,10 @@ import RegimeBadge from './components/RegimeBadge.jsx';
 import RiskScoreBar from './components/RiskScoreBar.jsx';
 import PositionGate from './components/PositionGate.jsx';
 import CircuitBreakerAlert from './components/CircuitBreakerAlert.jsx';
+import { useAlerts } from './hooks/useAlerts.js';
+import AlertPanel from './components/AlertPanel.jsx';
+import AlertToast from './components/AlertToast.jsx';
+import AlertBadge from './components/AlertBadge.jsx';
 import McmStorePanel from './components/McmStorePanel.jsx';
 
 const TABS = [
@@ -16,11 +20,18 @@ const TABS = [
   { id: 'orb', label: 'ORB', icon: '⏰' },
   { id: 'watchlist', label: 'Watchlist', icon: '👁️' },
   { id: 'gapscanner', label: 'Gap Scanner', icon: '🔍' },
+  { id: 'alerts', label: 'Alerts', icon: '🚨' },
 ];
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('momentum');
   const [showDevPanel, setShowDevPanel] = useState(false);
+  const {
+    alerts, triggered, history, webhooks, pushEnabled,
+    addAlert, addAlertFromTemplate, updateAlert, deleteAlert, toggleAlert,
+    scanAlerts, clearTriggered, clearHistory, enablePush,
+    addWebhook, deleteWebhook, toggleWebhook,
+  } = useAlerts();
   
   const renderPanel = () => {
     switch (activeTab) {
@@ -29,8 +40,38 @@ export default function App() {
       case 'orb': return <OrbPanel />;
       case 'watchlist': return <WatchlistPanel />;
       case 'gapscanner': return <GapScanner />;
+      case 'alerts': return <AlertPanel alerts={alerts} history={history} webhooks={webhooks} pushEnabled={pushEnabled} onAdd={addAlert} onAddFromTemplate={addAlertFromTemplate} onUpdate={updateAlert} onDelete={deleteAlert} onToggle={toggleAlert} onClearHistory={clearHistory} onEnablePush={enablePush} onAddWebhook={addWebhook} onDeleteWebhook={onDeleteWebhook} onToggleWebhook={toggleWebhook} />;
       default: return <MomentumPanel />;
     }
+  };
+  
+  const runAlertScan = async () => {
+    if (alerts.length === 0) return;
+    const symbols = [...new Set(alerts.filter((a) => a.enabled).map((a) => a.symbol))];
+    if (symbols.length === 0) return;
+    try {
+      const marketData = await Promise.all(
+        symbols.map(async (sym) => {
+          const res = await fetch('https://finnhub.io/api/v1/quote?symbol=' + sym + '&token=' + import.meta.env.VITE_FINNHUB_API_KEY);
+          const data = await res.json();
+          return { symbol: sym, price: data.c, change: data.d, changePercent: data.dp, volume: data.v || 0 };
+        })
+      );
+      scanAlerts(marketData);
+    } catch (err) { console.error('Alert-Scan fehlgeschlagen:', err); }
+  };
+  
+  useEffect(() => {
+    const interval = setInterval(runAlertScan, 60000);
+    return () => clearInterval(interval);
+  }, [alerts]);
+  
+  const handleGapScanComplete = (scanResults) => {
+    const marketData = scanResults.map((r) => ({
+      symbol: r.symbol, price: r.price, change: r.change,
+      changePercent: r.changePercent, volume: r.volume, gapPercent: r.gapPercent,
+    }));
+    scanAlerts(marketData);
   };
   
   return (
@@ -54,6 +95,7 @@ export default function App() {
               <div className="hidden sm:block w-48">
                 <RiskScoreBar />
               </div>
+              <AlertBadge count={triggered.length} onClick={() => setActiveTab('alerts')} />
             </div>
             
             <button
@@ -78,6 +120,7 @@ export default function App() {
       
       {/* OVERLAYS */}
       <PositionGate />
+      <AlertToast triggered={triggered} onClear={clearTriggered} />
       <CircuitBreakerAlert />
       
       {/* TABS */}
