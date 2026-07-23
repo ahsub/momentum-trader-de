@@ -30,7 +30,7 @@ export default function App() {
     alerts, triggered, history, webhooks, pushEnabled,
     addAlert, addAlertFromTemplate, updateAlert, deleteAlert, toggleAlert,
     scanAlerts, clearTriggered, clearHistory, enablePush,
-    addWebhook, deleteWebhook, toggleWebhook,
+    addWebhook, onDeleteWebhook, toggleWebhook,
   } = useAlerts();
   
   const renderPanel = () => {
