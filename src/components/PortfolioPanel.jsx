@@ -5,6 +5,7 @@ import PortfolioDashboard from './PortfolioDashboard';
 import KIAdvisorPanel from './KIAdvisorPanel';
 import PositionDetailPanel from './PositionDetailPanel';
 import OptionsAdvisorPanel from './OptionsAdvisorPanel';
+import ComplexStrategiesPanel from './ComplexStrategiesPanel';
 
 /**
  * PortfolioPanel - Main integration component
@@ -21,6 +22,7 @@ export default function PortfolioPanel({ className = '' }) {
     { id: 'dashboard', label: 'Dashboard', icon: '📊' },
     { id: 'advisor', label: 'KI-Advisor', icon: '🤖' },
     { id: 'options', label: 'Options Advisor', icon: '🎯' },
+    { id: 'complex', label: 'Komplexe Strategien', icon: '🧬' },
     { id: 'history', label: 'Trade-Historie', icon: '📜' },
   ];
 
@@ -87,6 +89,10 @@ export default function PortfolioPanel({ className = '' }) {
 
             {activeTab === 'options' && (
               <OptionsAdvisorPanel />
+            )}
+
+            {activeTab === 'complex' && (
+              <ComplexStrategiesPanel />
             )}
 
             {activeTab === 'history' && (
