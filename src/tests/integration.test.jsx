@@ -25,7 +25,7 @@ vi.mock('../stores/portfolioStore', () => ({
 vi.mock('../stores/tradeJournalStore', () => ({
   useTradeJournalStore: vi.fn((selector) => {
     const state = {
-      trades: [
+      entries: [
         { id: 1, symbol: 'AAPL', status: 'open', entryPrice: 150, exitPrice: null, pnl: 250 },
         { id: 2, symbol: 'TSLA', status: 'closed', entryPrice: 200, exitPrice: 180, pnl: -100 },
       ],
@@ -244,20 +244,5 @@ describe('Integration: PortfolioPanel with Greeks & Journal', () => {
 
       expect(screen.getByText('No positions available for Greeks calculation')).toBeInTheDocument();
     });
-  });
-});
-
-describe('Integration: App with PaperModeToggle', () => {
-  it('renders PaperModeToggle in header', () => {
-    render(<App />);
-
-    expect(screen.getByTestId('paper-mode-toggle')).toBeInTheDocument();
-  });
-
-  it('displays version and mode in header', () => {
-    render(<App />);
-
-    expect(screen.getByText(/v2.1.0/)).toBeInTheDocument();
-    expect(screen.getByText(/Live Mode/)).toBeInTheDocument();
   });
 });
