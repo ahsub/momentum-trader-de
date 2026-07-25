@@ -299,6 +299,14 @@ export const useTradeJournalStore = create(
           try { localStorage.removeItem(name); } catch {}
         },
       },
+      merge: (persistedState, currentState) => {
+        // If persisted state is empty/invalid, keep current (initial) state
+        if (!persistedState || !persistedState.entries) {
+          return currentState;
+        }
+        return { ...currentState, ...persistedState };
+      },
+      skipHydration: typeof window === 'undefined',
     }
   )
 );
