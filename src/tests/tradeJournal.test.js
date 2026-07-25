@@ -88,7 +88,9 @@ describe('Trade Journal Store', () => {
         exitReason: 'stop_loss',
       });
 
-      const entry = store.entries.find(e => e.id === id);
+      // Re-read state after mutation (zustand getState() returns snapshot)
+      const updatedStore = useTradeJournalStore.getState();
+      const entry = updatedStore.entries.find(e => e.id === id);
       expect(entry.pnl).toBe(-200);
     });
   });
