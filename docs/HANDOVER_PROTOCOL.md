@@ -1,48 +1,52 @@
-# 📋 Übergabeprotokoll — 25. Juli 2026
+# 📋 Übergabeprotokoll — 25. Juli 2026 (FINAL)
 
-**Datum:** 25. Juli 2026, 18:30 CEST  
+**Datum:** 25. Juli 2026, ~18:45 CEST  
 **Repository:** github.com/ahsub/momentum-trader-de  
-**Branch:** develop (ahead of main)  
+**Branch:** main (develop gemergt)  
+**Version:** v2.1.0 deployed  
 **Tech Stack:** React 19 + Vite 6 + Tailwind CSS 4 + Recharts + Framer Motion + Zustand
 
 ---
 
-## ✅ Heute Abgeschlossen
+## ✅ HEUTE ABGESCHLOSSEN
 
-### 1. Integration v2.1.0 Features
+### v2.1.0 Integration (Phase 8.4 + 8.5)
 
 | Feature | Datei | Status |
 |---------|-------|--------|
-| PaperModeToggle in Header | `src/App.jsx` | ✅ Deployed |
-| GreeksBar + PositionGreeksCard | `src/components/PortfolioPanel.jsx` | ✅ Deployed |
-| TradeJournalPanel als Tab | `src/components/PortfolioPanel.jsx` | ✅ Deployed |
-| Integration Tests | `src/tests/integration.test.jsx` | ✅ 10/10 passing |
+| PaperModeToggle in Header | `src/App.jsx` | ✅ Merged to main |
+| GreeksBar + PositionGreeksCard | `src/components/PortfolioPanel.jsx` | ✅ Merged to main |
+| TradeJournalPanel als Tab | `src/components/PortfolioPanel.jsx` | ✅ Merged to main |
+| Integration Tests (10 Cases) | `src/tests/integration.test.jsx` | ✅ Merged to main |
 
-### 2. Bugfixes (Legacy Tests)
+### Bugfixes (11 Legacy-Tests)
 
-| Datei | Problem | Fix |
-|-------|---------|-----|
-| `cspAdvisor.js` | ITM-Trigger zu streng (295/300) | Schwelle 0.98 → 0.99 |
-| `ccAdvisor.js` | ITM-Trigger zu streng (315/310) | Schwelle 1.02 → 1.01 |
-| `csvParser.js` | Status-Reihenfolge falsch | A > Ex > Ep > R > C > O |
-| `csvParser.js` | AssetClass nicht erkannt | Normalisierung + OPTION-Support |
-| `kiEngine.js` | `openingTrades` undefined | Optional chaining `?.` |
-| `portfolioTests.test.js` | CSV-Spalten verschoben | Komma in Date/Time entfernt |
-| `tradeJournalStore.js` | `zustand persist` crasht in vitest | Manuelles localStorage |
-| `tradeJournalStore.js` | `status` nicht gesetzt | `status: 'open'` in `addEntry` |
-| `greeksCalculator.js` | T=0 Delta ohne ×100 | Multiplikator ergänzt |
-| `greeksCalculator.test.js` | Delta-Erwartungen falsch | ×100 angepasst |
+| Datei | Problem | Fix | Commit |
+|-------|---------|-----|--------|
+| `cspAdvisor.js` | ITM-Trigger zu streng | Schwelle 0.98 → 0.99 | f66691a |
+| `ccAdvisor.js` | ITM-Trigger zu streng | Schwelle 1.02 → 1.01 | 9f442aa |
+| `csvParser.js` | Status-Reihenfolge falsch | A > Ex > Ep > R > C > O | 1b89d2d |
+| `csvParser.js` | AssetClass nicht erkannt | Normalisierung + OPTION | 1b89d2d |
+| `kiEngine.js` | `openingTrades` undefined | Optional chaining `?.` | 6507cf7 |
+| `portfolioTests.test.js` | CSV-Spalten verschoben | Komma in Date/Time entfernt | fb80270 |
+| `greeksCalculator.js` | T=0 Delta ohne ×100 | Multiplikator ergänzt | 5e91553 |
+| `greeksCalculator.test.js` | Delta-Erwartungen falsch | ×100 angepasst | 161d621 |
+| `tradeJournalStore.js` | `zustand persist` crasht | Manuelles localStorage | 7e0166e |
+| `tradeJournalStore.js` | `status` nicht gesetzt | `status: 'open'` in `addEntry` | 553783e |
+| `integration.test.jsx` | Mehrdeutige Selektoren | `getAllByText` + Tag-Filter | Mehrere |
 
-### 3. Dokumentation
+### Merge & Deploy
 
-| Datei | Zweck |
-|-------|-------|
-| `docs/STRATEGY_ROADMAP.md` | Options-Strategien & Roadmap v2.2.0 |
-| `docs/HANDOVER_PROTOCOL.md` | Dieses Protokoll |
+| Schritt | Status | Details |
+|---------|--------|---------|
+| PR #1 erstellt | ✅ | develop → main |
+| PR #1 gemergt | ✅ | Commit: fbee55f |
+| main Branch | ✅ | v2.1.0 Release |
+| Vercel Deploy | ⏳ | Automatisch nach Merge |
 
 ---
 
-## 📊 Test-Ergebnis
+## 📊 Test-Ergebnis (FINAL)
 
 ```
 Test Files:  10 passed (10)
@@ -65,66 +69,69 @@ Duration:    ~1.7s
 
 ---
 
-## 🧠 Wichtige Erkenntnisse / Learnings
+## 🧠 WICHTIGE LEARNINGS (für zukünftige Chats)
 
-1. **Zustand persist in vitest:** `zustand persist` überschreibt State asynchron im Test-Environment. Lösung: Manuelles localStorage mit `typeof window !== 'undefined'`-Guard.
+1. **Zustand persist + vitest = Problem**
+   - `zustand persist` überschreibt State asynchron im Test-Environment
+   - Lösung: Manuelles localStorage mit `typeof window !== 'undefined'`-Guard
+   - ODER: `getStorage` statt `storage` (je nach zustand-Version)
 
-2. **Zustand getState() ist eine Momentaufnahme:** Nach `set()` zeigt die lokale Variable immer noch auf den alten State. Immer `getState()` erneut aufrufen nach Mutationen.
+2. **Zustand getState() ist eine Momentaufnahme**
+   - Nach `set()` zeigt die lokale Variable immer noch auf den alten State
+   - Immer `getState()` erneut aufrufen nach Mutationen in Tests
 
-3. **GitHub API File Updates:** Bei `update_file` muss der aktuelle `sha` übergeben werden, sonst 409 Conflict.
+3. **GitHub API File Updates**
+   - Bei `update_file` muss der aktuelle `sha` übergeben werden
+   - Sonst: 409 Conflict
 
-4. **CSV-Parsing:** Ein Komma im `Date/Time`-Feld verschiebt alle Spalten. CSV-Parser müssen mit gekapselten Feldern umgehen können.
+4. **CSV-Parsing**
+   - Ein Komma im `Date/Time`-Feld verschiebt alle Spalten
+   - CSV-Parser müssen mit gekapselten Feldern umgehen können
 
-5. **Delta-Multiplikator:** `calculateGreeks` gibt Delta × 100 zurück (per Contract). Tests müssen das berücksichtigen.
+5. **Delta-Multiplikator in greeksCalculator**
+   - `calculateGreeks` gibt Delta × 100 zurück (per Contract)
+   - Tests müssen das berücksichtigen (0.65 → 65)
 
 ---
 
-## 📦 Neue/Geänderte Dateien (heute)
+## 📁 Dokumentation im Repo
+
+| Datei | Zweck | Pfad |
+|-------|-------|------|
+| **STRATEGY_ROADMAP.md** | Options-Strategien & 4-Phasen-Roadmap v2.2.0 | `docs/STRATEGY_ROADMAP.md` |
+| **HANDOVER_PROTOCOL.md** | Dieses Protokoll | `docs/HANDOVER_PROTOCOL.md` |
+
+---
+
+## 🚀 NÄCHSTER CHAT: Options-Trading-Modul v2.2.0
+
+### Phase 1: Options-Screener (v2.2.0-alpha)
+**Ziel:** LEAP- und PMCC-Kandidaten finden
 
 ```
-src/App.jsx                                    [NEU — PaperModeToggle]
-src/components/PortfolioPanel.jsx              [NEU — 3 Tabs + Greeks]
-src/tests/integration.test.jsx                 [NEU — 10 Tests]
-src/stores/tradeJournalStore.js               [FIX — persist removed]
-src/stores/portfolioStore.js                  [FIX — persist removed]
-src/services/greeksCalculator.js              [FIX — T=0 Delta]
-src/tests/greeksCalculator.test.js            [FIX — Delta ×100]
-src/tests/tradeJournal.test.js                [FIX — getState() re-read]
-src/utils/cspAdvisor.js                       [FIX — ITM threshold]
-src/utils/ccAdvisor.js                        [FIX — ITM threshold]
-src/utils/csvParser.js                        [FIX — status order + AssetClass]
-src/utils/kiEngine.js                         [FIX — optional chaining]
-src/__tests__/portfolioTests.test.js          [FIX — CSV Date/Time]
-docs/STRATEGY_ROADMAP.md                       [NEU]
-docs/HANDOVER_PROTOCOL.md                      [NEU]
+Neue Dateien (geplant):
+├── src/services/koAggregatorBridge.js   # Data-Bridge zu KO-Aggregator
+├── src/services/optionsScreener.js      # Filter-Logik (Delta, IV, DTE)
+├── src/components/OptionsScanner.jsx    # UI Panel (neuer Tab)
+└── src/tests/optionsScreener.test.js    # 8-10 Test-Cases
 ```
 
----
+**Features:**
+- [ ] KO-Aggregator Data-Bridge (Pre-Screen 660 Ticker)
+- [ ] Finnhub/Twelvedata Options-Chain API
+- [ ] Delta/IV/DTE-Filter (konfigurierbar)
+- [ ] Width Rule Validator für PMCC
 
-## 🎯 Nächster Chat: Options-Trading-Modul v2.2.0
+**Datenquellen:**
+- KO-Aggregator: `https://ko-sync.ahildebrand.workers.dev/public/master_market_data`
+- Finnhub API-Key: bereits in `.env.local`
 
-### Geplant:
-1. **KO-Aggregator Data-Bridge** — Pre-Screen für LEAP/PMCC-Kandidaten
-2. **Options-Screener Panel** — Neuer Tab in PortfolioPanel
-3. **Finnhub Options-Chain API** — Enrichment der Pre-Screen-Daten
-4. **StrategyBuilder Service** — PMCC-Validator + ZEBRA-Konstruktor
-
-### Vorbereitung:
-- KO-Aggregator liefert 2× täglich 660 Ticker mit Trend-Scores, EMA, RSI, HVP
-- Cloudflare KV Endpoint: `https://ko-sync.ahildebrand.workers.dev/public/master_market_data`
-- Finnhub API-Key bereits in `.env.local` vorhanden
+### Phase 2–4
+Siehe `docs/STRATEGY_ROADMAP.md` für vollständige Roadmap.
 
 ---
 
-## ⚠️ Bekannte Einschränkungen
-
-- `localStorage` Warning in vitest: `ExperimentalWarning: localStorage is not available` — harmlos, da wir `typeof window !== 'undefined'` prüfen
-- `tradeJournalStore.js` und `portfolioStore.js` verwenden manuelles localStorage statt `zustand persist` — funktioniert, aber weniger elegant
-- Integrationstests verwenden vitest-native Matcher (kein `jest-dom`) — bewusste Entscheidung
-
----
-
-## 🔐 Sicherheitshinweise
+## 🔐 SICHERHEIT
 
 - GitHub PAT in Memory gespeichert (nicht im Code)
 - API-Keys in `.env.local` (nicht committed)
@@ -132,5 +139,16 @@ docs/HANDOVER_PROTOCOL.md                      [NEU]
 
 ---
 
-*Protokoll erstellt von: Kimi Chat (Moonshot AI)*  
+## 📌 STARTKOMMANDO FÜR NÄCHSTEN CHAT
+
+```
+"Integration der Options-Trading-Module v2.2.0: KO-Aggregator Data-Bridge, 
+Options-Screener mit Finnhub API, PMCC-Validator. 
+Übergabeprotokoll und STRATEGY_ROADMAP sind bekannt."
+```
+
+---
+
+*Protokoll erstellt: 25. Juli 2026, 18:45 CEST*  
+*Erstellt von: Kimi Chat (Moonshot AI)*  
 *Nächstes Protokoll: nach Abschluss v2.2.0 Phase 1*
