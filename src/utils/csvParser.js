@@ -48,12 +48,12 @@ export function determineTradeStatus(code, assetClass, quantity) {
 
   const codes = code.split(';');
 
-  if (codes.includes('Ep')) return 'EXPIRED';
-  if (codes.includes('Ex')) return 'EXERCISED';
   if (codes.includes('A')) return 'ASSIGNED';
+  if (codes.includes('Ex')) return 'EXERCISED';
+  if (codes.includes('Ep')) return 'EXPIRED';
+  if (codes.includes('R')) return 'ROLLED';
   if (codes.includes('C')) return 'CLOSED';
   if (codes.includes('O')) return 'OPEN';
-  if (codes.includes('R')) return 'ROLLED';
 
   // For options: negative quantity = SELL/SHORT = OPENING
   // positive quantity = BUY/CLOSE = CLOSING (if it was short)
@@ -71,7 +71,7 @@ export function determineTradeStatus(code, assetClass, quantity) {
  * @returns {string} - strategy name
  */
 export function detectStrategy(trade, allTrades = []) {
-  if (trade.assetClass !== 'OPT') return 'BUY_AND_HOLD';
+  if (trade.assetClass !== 'OPT' && trade.assetClass !== 'OPTION') return 'BUY_AND_HOLD';
 
   const { optionType, side } = trade;
 
@@ -119,7 +119,13 @@ export function parseTradeRow(row) {
   const commission = parseFloat(row['Comm/Fee']) || 0;
   const realizedPL = row['Realized P/L'] ? parseFloat(row['Realized P/L']) : null;
 
-  const assetClass = row.AssetClass || (optionData ? 'OPT' : 'STK');
+  let assetClass = row.AssetClass || (optionData ? 'OPT' : 'STK');
+  // Normalize shifted AssetClass values from malformed CSV (e.g. 'AAPL Stock' → 'STK')
+  if (assetClass && !['STK', 'OPT', 'STOCK', 'OPTION'].includes(assetClass)) {
+    const upper = assetClass.toUpperCase();
+    if (upper.includes('STK') || upper.includes('STOCK')) assetClass = 'STK';
+    else if (upper.includes('OPT')) assetClass = 'OPT';
+  }
   const side = row['Buy/Sell'].trim().toUpperCase();
   const code = row.Code || '';
   const status = determineTradeStatus(code, assetClass, quantity);
