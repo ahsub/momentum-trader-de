@@ -67,6 +67,7 @@ export const useTradeJournalStore = create((set, get) => ({
         const entry = {
           id: generateJournalId(),
           ...entryData,
+          status: 'open',
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
