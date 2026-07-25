@@ -59,7 +59,7 @@ vi.mock('../services/greeksCalculator', () => ({
   })),
 }));
 
-vi.mock('./GreeksBar', () => ({
+vi.mock('../components/GreeksBar', () => ({
   default: function GreeksBar({ greeks, compact }) {
     return (
       <div data-testid="greeks-bar" data-compact={compact ? 'true' : 'false'}>
@@ -72,7 +72,7 @@ vi.mock('./GreeksBar', () => ({
   },
 }));
 
-vi.mock('./PositionGreeksCard', () => ({
+vi.mock('../components/PositionGreeksCard', () => ({
   default: function PositionGreeksCard({ position, greeks }) {
     return (
       <div data-testid={`position-greeks-${position.symbol}`}>
@@ -83,21 +83,21 @@ vi.mock('./PositionGreeksCard', () => ({
   },
 }));
 
-vi.mock('./TradeJournalPanel', () => ({
+vi.mock('../components/TradeJournalPanel', () => ({
   default: function TradeJournalPanel() {
     return <div data-testid="trade-journal-panel">Trade Journal Content</div>;
   },
 }));
 
-vi.mock('./PaperModeToggle', () => ({
+vi.mock('../components/PaperModeToggle', () => ({
   default: function PaperModeToggle() {
     return <button data-testid="paper-mode-toggle">Paper Mode Toggle</button>;
   },
 }));
 
 // ─── Components Under Test ───
-import PortfolioPanel from './PortfolioPanel';
-import App from './App';
+import PortfolioPanel from '../components/PortfolioPanel';
+import App from '../App';
 
 describe('Integration: PortfolioPanel with Greeks & Journal', () => {
   beforeEach(() => {
