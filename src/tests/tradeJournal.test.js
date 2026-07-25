@@ -59,7 +59,9 @@ describe('Trade Journal Store', () => {
         exitReason: 'target_hit',
       });
 
-      const entry = store.entries.find(e => e.id === id);
+      // Re-read state after mutation (zustand getState() returns snapshot)
+      const updatedStore = useTradeJournalStore.getState();
+      const entry = updatedStore.entries.find(e => e.id === id);
       expect(entry.status).toBe('closed');
       expect(entry.exitPrice).toBe(5.00);
       expect(entry.pnl).toBe(200);
