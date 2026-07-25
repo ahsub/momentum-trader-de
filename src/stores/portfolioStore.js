@@ -25,9 +25,9 @@ function calculatePnL(position, currentPrice) {
   return { pnl, pnlPercent };
 }
 
-export const usePortfolioStore = create(
-  persist(
-    (set, get) => ({
+const isTestEnv = process.env.NODE_ENV === 'test';
+
+const portfolioStoreCreator = (set, get) => ({
       isPaperMode: false,
       livePositions: [],
       paperPositions: [],
@@ -195,13 +195,29 @@ export const usePortfolioStore = create(
           try { localStorage.removeItem(name); } catch {}
         },
       },
-      merge: (persistedState, currentState) => {
-        if (!persistedState) return currentState;
-        return { ...currentState, ...persistedState };
-      },
-      skipHydration: typeof window === 'undefined',
     }
   )
 );
+
+export const usePortfolioStore = isTestEnv
+  ? create(portfolioStoreCreator)
+  : create(persist(portfolioStoreCreator, {
+      name: 'momentum-trader-portfolio',
+      partialize: (state) => ({
+        isPaperMode: state.isPaperMode,
+        paperPositions: state.paperPositions,
+      }),
+      storage: {
+        getItem: (name) => {
+          try { return localStorage.getItem(name); } catch { return null; }
+        },
+        setItem: (name, value) => {
+          try { localStorage.setItem(name, value); } catch {}
+        },
+        removeItem: (name) => {
+          try { localStorage.removeItem(name); } catch {}
+        },
+      },
+    }));
 
 export default usePortfolioStore;
