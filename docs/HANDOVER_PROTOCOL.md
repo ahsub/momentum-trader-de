@@ -1,136 +1,144 @@
-# 📋 Übergabeprotokoll — 25. Juli 2026
-
-**Datum:** 25. Juli 2026, 18:30 CEST  
-**Repository:** github.com/ahsub/momentum-trader-de  
-**Branch:** develop (ahead of main)  
-**Tech Stack:** React 19 + Vite 6 + Tailwind CSS 4 + Recharts + Framer Motion + Zustand
+# Übergabeprotokoll — momentum-trader-de
+## Datum: 25. Juli 2026
+## Version: v2.2.0-beta
 
 ---
 
 ## ✅ Heute Abgeschlossen
 
-### 1. Integration v2.1.0 Features
+### 1. Options Scanner v2.2.0-alpha
+- **KO-Aggregator Data-Bridge** (`src/services/koAggregatorBridge.js`)
+  - Cloudflare KV Endpoint + GitHub Fallback
+  - Pre-Screen Filter für LEAP (Score ≥70, RSI 45-62, HVP <40, Trend > EMA200)
+  - Pre-Screen Filter für PMCC (Score ≥65, RSI 40-65, HVP <45)
+- **Options Screener** (`src/services/optionsScreener.js`)
+  - Finnhub API Integration (Options-Chain)
+  - Mock-Fallback bei fehlendem API-Key
+  - PMCC Width Rule Validator
+- **OptionsScanner UI** (`src/components/OptionsScanner.jsx`)
+  - LEAP / PMCC Tabs
+  - Detail-Panel mit Delta, DTE, IV Rank, Extrinsic %
+  - Width Rule Validierung (✅/❌)
+- **Tests:** 117/117 grün
 
-| Feature | Datei | Status |
-|---------|-------|--------|
-| PaperModeToggle in Header | `src/App.jsx` | ✅ Deployed |
-| GreeksBar + PositionGreeksCard | `src/components/PortfolioPanel.jsx` | ✅ Deployed |
-| TradeJournalPanel als Tab | `src/components/PortfolioPanel.jsx` | ✅ Deployed |
-| Integration Tests | `src/tests/integration.test.jsx` | ✅ 10/10 passing |
+### 2. CapTrader Import v2.2.0-beta
+- **XML Parser** (`src/services/capTraderParser.js`)
+  - Parst Flex-Query XML (OpenPositions, Trades, EquitySummary)
+  - Option-spezifische Felder (Strike, Expiration, Put/Call)
+- **CapTraderImport UI** (`src/components/CapTraderImport.jsx`)
+  - Drag & Drop XML Upload
+  - Performance-Metriken (Win Rate, PnL, Profit Factor)
+  - Import in PortfolioStore + TradeJournalStore
+- **Tests:** 133/133 grün (inkl. CapTrader XML Parser Tests)
 
-### 2. Bugfixes (Legacy Tests)
+### 3. Steueranalyse v2.2.0-beta
+- **Tax Parser** (`src/services/taxParser.js`)
+  - CSV Kontoauszug Parser
+  - Steuerkategorisierung (Dividende, Zinsen, Kursgewinn, Optionsprämie, Steuern, Gebühren)
+  - EZB FX-Kurs Umrechnung (geschätzte Jahresdurchschnitte)
+  - Jahresübersicht
+- **Tax Rules** (`src/services/taxRules.js`)
+  - DBA-Regeln (17 Länder)
+  - Kirchensteuer (8% BW/BY, 9% andere BL)
+  - Gemeinschaftskonto (50/50 Aufteilung, €2.000 Freibetrag)
+  - Einzelkonto (€1.000 Freibetrag)
+  - Nicht-deutscher Broker Hinweis (keine Abgeltungsteuer einbehalten)
+- **TaxAnalysis UI** (`src/components/TaxAnalysis.jsx`)
+  - Steuer-Einstellungen (Konto-Typ, Kirchensteuer, Personen)
+  - Deutsche Steuerberechnung (Abgeltung + Soli + Kirchensteuer)
+  - Kategorie-Übersicht
+  - Erstattungsfristen-Warnung
+- **Tax Export** (`src/services/taxExport.js`)
+  - Druckbare Steuererläuterung als HTML
+  - Tagesgenaue Transaktionsliste mit Wechselkursen
+  - Kategorie-Summen
+  - Hinweise für Anlage KAP
 
-| Datei | Problem | Fix |
-|-------|---------|-----|
-| `cspAdvisor.js` | ITM-Trigger zu streng (295/300) | Schwelle 0.98 → 0.99 |
-| `ccAdvisor.js` | ITM-Trigger zu streng (315/310) | Schwelle 1.02 → 1.01 |
-| `csvParser.js` | Status-Reihenfolge falsch | A > Ex > Ep > R > C > O |
-| `csvParser.js` | AssetClass nicht erkannt | Normalisierung + OPTION-Support |
-| `kiEngine.js` | `openingTrades` undefined | Optional chaining `?.` |
-| `portfolioTests.test.js` | CSV-Spalten verschoben | Komma in Date/Time entfernt |
-| `tradeJournalStore.js` | `zustand persist` crasht in vitest | Manuelles localStorage |
-| `tradeJournalStore.js` | `status` nicht gesetzt | `status: 'open'` in `addEntry` |
-| `greeksCalculator.js` | T=0 Delta ohne ×100 | Multiplikator ergänzt |
-| `greeksCalculator.test.js` | Delta-Erwartungen falsch | ×100 angepasst |
+### 4. Bugfixes
+- `portfolioStore.js`: Doppelte `isTestEnv` Deklaration entfernt
+- `package.json`: `zustand` Dependency hinzugefügt
+- `PaperModeToggle.jsx`: Shell-Befehl-Artifact entfernt
+- `App.jsx`: `Receipt` → `FileText` Icon (lucide-react Kompatibilität)
 
-### 3. Dokumentation
-
-| Datei | Zweck |
-|-------|-------|
-| `docs/STRATEGY_ROADMAP.md` | Options-Strategien & Roadmap v2.2.0 |
-| `docs/HANDOVER_PROTOCOL.md` | Dieses Protokoll |
+### 5. Vercel Deploy
+- `VITE_FINNHUB_KEY` in Environment Variables gesetzt
+- Build erfolgreich
+- App live: https://momentum-trader-de.vercel.app
 
 ---
 
-## 📊 Test-Ergebnis
+## ⚠️ Bekannte Probleme / TODOs
+
+1. **KO-Aggregator Endpoints offline**
+   - Cloudflare KV: 404
+   - GitHub Fallback: 404
+   - Scanner läuft im Mock-Modus
+   - **→ MORGEN REPARIEREN (Priorität 1)**
+
+2. **Wechselkurse in Steueranalyse**
+   - Aktuell geschätzte EZB-Jahresdurchschnitte
+   - Sollten durch tagesgenaue EZB-Kurse ersetzt werden
+   - **→ MORGEN (Priorität 2)**
+
+3. **Finnhub Options-Chain**
+   - Free-Tier liefert keine vollständigen Greeks
+   - Delta/IV werden aus Strike-Abstand/HVP geschätzt
+   - **→ Später: Premium Provider (Polygon.io)**
+
+---
+
+## 📁 Neue Dateien im Repo
 
 ```
-Test Files:  10 passed (10)
-Tests:       109 passed (109)
-Duration:    ~1.7s
-```
-
-| Test-Datei | Tests | Status |
-|------------|-------|--------|
-| `optionsAdvisorTests.test.js` | 13 | ✅ |
-| `portfolioTests.test.js` | 18 | ✅ |
-| `regimeCalculator.test.js` | 10 | ✅ |
-| `riskCalculator.test.js` | 17 | ✅ |
-| `snapshotReader.test.js` | 4 | ✅ |
-| `greeksCalculator.test.js` | 14 | ✅ |
-| `integration.test.jsx` | 10 | ✅ |
-| `tradeJournal.test.js` | 11 | ✅ |
-| `McmStore.test.ts` | 7 | ✅ |
-| `gapApiService.test.ts` | 5 | ✅ |
-
----
-
-## 🧠 Wichtige Erkenntnisse / Learnings
-
-1. **Zustand persist in vitest:** `zustand persist` überschreibt State asynchron im Test-Environment. Lösung: Manuelles localStorage mit `typeof window !== 'undefined'`-Guard.
-
-2. **Zustand getState() ist eine Momentaufnahme:** Nach `set()` zeigt die lokale Variable immer noch auf den alten State. Immer `getState()` erneut aufrufen nach Mutationen.
-
-3. **GitHub API File Updates:** Bei `update_file` muss der aktuelle `sha` übergeben werden, sonst 409 Conflict.
-
-4. **CSV-Parsing:** Ein Komma im `Date/Time`-Feld verschiebt alle Spalten. CSV-Parser müssen mit gekapselten Feldern umgehen können.
-
-5. **Delta-Multiplikator:** `calculateGreeks` gibt Delta × 100 zurück (per Contract). Tests müssen das berücksichtigen.
-
----
-
-## 📦 Neue/Geänderte Dateien (heute)
-
-```
-src/App.jsx                                    [NEU — PaperModeToggle]
-src/components/PortfolioPanel.jsx              [NEU — 3 Tabs + Greeks]
-src/tests/integration.test.jsx                 [NEU — 10 Tests]
-src/stores/tradeJournalStore.js               [FIX — persist removed]
-src/stores/portfolioStore.js                  [FIX — persist removed]
-src/services/greeksCalculator.js              [FIX — T=0 Delta]
-src/tests/greeksCalculator.test.js            [FIX — Delta ×100]
-src/tests/tradeJournal.test.js                [FIX — getState() re-read]
-src/utils/cspAdvisor.js                       [FIX — ITM threshold]
-src/utils/ccAdvisor.js                        [FIX — ITM threshold]
-src/utils/csvParser.js                        [FIX — status order + AssetClass]
-src/utils/kiEngine.js                         [FIX — optional chaining]
-src/__tests__/portfolioTests.test.js          [FIX — CSV Date/Time]
-docs/STRATEGY_ROADMAP.md                       [NEU]
-docs/HANDOVER_PROTOCOL.md                      [NEU]
+src/services/koAggregatorBridge.js
+src/services/optionsScreener.js
+src/services/capTraderParser.js
+src/services/taxParser.js
+src/services/taxRules.js
+src/services/taxExport.js
+src/components/OptionsScanner.jsx
+src/components/CapTraderImport.jsx
+src/components/TaxAnalysis.jsx
+src/__tests__/koAggregatorBridge.test.js
+src/__tests__/optionsScreener.test.js
+src/__tests__/capTraderParser.test.js
 ```
 
 ---
 
-## 🎯 Nächster Chat: Options-Trading-Modul v2.2.0
+## 🔧 Tests
 
-### Geplant:
-1. **KO-Aggregator Data-Bridge** — Pre-Screen für LEAP/PMCC-Kandidaten
-2. **Options-Screener Panel** — Neuer Tab in PortfolioPanel
-3. **Finnhub Options-Chain API** — Enrichment der Pre-Screen-Daten
-4. **StrategyBuilder Service** — PMCC-Validator + ZEBRA-Konstruktor
-
-### Vorbereitung:
-- KO-Aggregator liefert 2× täglich 660 Ticker mit Trend-Scores, EMA, RSI, HVP
-- Cloudflare KV Endpoint: `https://ko-sync.ahildebrand.workers.dev/public/master_market_data`
-- Finnhub API-Key bereits in `.env.local` vorhanden
+```
+Test Files  14 passed (14)
+Tests       133 passed (133)
+```
 
 ---
 
-## ⚠️ Bekannte Einschränkungen
+## 🔑 API Keys (lokal in .env.local)
 
-- `localStorage` Warning in vitest: `ExperimentalWarning: localStorage is not available` — harmlos, da wir `typeof window !== 'undefined'` prüfen
-- `tradeJournalStore.js` und `portfolioStore.js` verwenden manuelles localStorage statt `zustand persist` — funktioniert, aber weniger elegant
-- Integrationstests verwenden vitest-native Matcher (kein `jest-dom`) — bewusste Entscheidung
+```
+VITE_FINNHUB_KEY=d85nf39r01qitd92t67gd85nf39r01qitd92t680
+```
 
----
-
-## 🔐 Sicherheitshinweise
-
-- GitHub PAT in Memory gespeichert (nicht im Code)
-- API-Keys in `.env.local` (nicht committed)
-- Repo ist public — keine sensiblen Daten im Source
+Auch in Vercel Environment Variables gesetzt.
 
 ---
 
-*Protokoll erstellt von: Kimi Chat (Moonshot AI)*  
-*Nächstes Protokoll: nach Abschluss v2.2.0 Phase 1*
+## 🚀 Git Status
+
+```
+main: 987ede3 (force redeploy) -> a45b0c4 (tax export) -> ...
+Alle Commits auf origin/main gepusht
+Lokal synchron mit origin/main
+```
+
+---
+
+## 📋 Nächste Schritte (Morgen)
+
+Siehe STRATEGY_ROADMAP.md
+
+---
+
+Erstellt: 25.07.2026 23:22
