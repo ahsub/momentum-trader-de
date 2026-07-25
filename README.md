@@ -62,3 +62,47 @@ MIT License — siehe [LICENSE](LICENSE)
 ---
 
 Entwickelt für den deutschen Markt (Xetra 09:00 MEZ) mit Fokus auf US-ADR-KO-Zertifikate über Trade Republic.
+
+
+## 🔄 Entwicklungs-Branches
+
+| Branch | Zweck |
+|--------|-------|
+| `main` | Stabile Production-Version |
+| `develop` | Aktive Entwicklung |
+
+## 🏗️ Architektur
+
+Siehe [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+
+## 🧪 Tests
+
+```bash
+# Tests ausführen
+npm test
+
+# Tests im Watch-Modus
+npm test -- --watch
+```
+
+## 📊 McmStore v3.0
+
+Risk Management Engine mit:
+- Regime-Erkennung (Bull Quiet, Bull Volatile, Bear, Crisis)
+- Circuit Breaker (MOVE-Index, VIX)
+- Position Sizing (Bullish: 100%, Volatile: 30%, Crisis: 0%)
+
+## 🔗 Snapshot-System
+
+Verbindung zu bestehender Infrastruktur:
+- **Cloudflare KV**: Aktuelle Daten (live)
+- **GitHub-Archiv**: `data/snapshots/YYYY-MM-DD_{03,13}.json.gz`
+- **90-Tage-Rotation**: Repo bleibt bei ~20-25 MB
+
+## 🚀 Roadmap
+
+- [x] v1.0.0 Baseline: KO-Rechner, Trendfolge, ORB
+- [ ] v2.0.0: API-Integration, McmStore, GapScanner
+- [ ] v2.1.0: Portfolio-Tracking, Trade Journal
+- [ ] v2.2.0: Backtesting-Modul
+- [ ] v3.0.0: Broker-API (Alpaca/IBKR)
