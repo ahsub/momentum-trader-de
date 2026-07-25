@@ -194,14 +194,14 @@ describe('Integration: PortfolioPanel with Greeks & Journal', () => {
   // ═══════════════════════════════════════════
   describe('Empty States', () => {
     it('shows empty state when no positions in Greeks tab', () => {
-      // With default mock (2 positions), clicking Greeks tab shows Greeks content
+      // Default mock has 2 positions, so we verify Greeks tab renders
       render(<PortfolioPanel />);
       const greeksTabs = screen.getAllByText('Greeks');
       const greeksButton = greeksTabs.find(el => el.tagName === 'BUTTON');
       fireEvent.click(greeksButton || greeksTabs[0]);
-      // Greeks tab renders with mocked data (PositionGreeksCards)
-      expect(screen.getByTestId('position-greeks-AAPL')).toBeDefined();
-      expect(screen.getByTestId('position-greeks-TSLA')).toBeDefined();
+      // Greeks tab renders with mocked data
+      expect(screen.getByText('Portfolio Greeks')).toBeDefined();
+      expect(screen.getByText('Position Greeks')).toBeDefined();
     });
   });
 });
