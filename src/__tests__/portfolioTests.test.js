@@ -69,8 +69,8 @@ describe('csvParser', () => {
   describe('parseCapTraderCSV', () => {
     it('parses mock CSV correctly', () => {
       const csv = `Date/Time,Symbol,Quantity,T. Price,Proceeds,Comm/Fee,Realized P/L,Code,Buy/Sell,Order Type,Description,AssetClass
-2026-07-23, 10:00:00,AAPL,100,185.50,-18550.00,-1.00,,O,BUY,LMT,AAPL Stock,STK
-2026-07-23, 10:00:00,AAPL  240816P00200000,-1,2.50,250.00,-1.24,,O,SELL,LMT,AAPL PUT,OPT`;
+2026-07-23 10:00:00,AAPL,100,185.50,-18550.00,-1.00,,O,BUY,LMT,AAPL Stock,STK
+2026-07-23 10:00:00,AAPL  240816P00200000,-1,2.50,250.00,-1.24,,O,SELL,LMT,AAPL PUT,OPT`;
 
       const trades = parseCapTraderCSV(csv);
       expect(trades).toHaveLength(2);
