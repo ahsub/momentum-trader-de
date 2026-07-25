@@ -1,8 +1,4 @@
 /**
- * 
- */
-cat > src/stores/portfolioStore.js << 'EOF'
-/**
  * Enhanced Portfolio Store — mit Paper-Trading Support
  * Phase 8.5 — momentum-trader-de
  * 
