@@ -55,7 +55,7 @@ export default function PortfolioPanel() {
   } = usePortfolioStore();
 
   // ─── Trade Journal Store ───
-  const { trades, getPerformanceMetrics } = useTradeJournalStore();
+  const { entries: trades, getPerformanceMetrics } = useTradeJournalStore();
 
   // ─── Calculate Portfolio Greeks ───
   const portfolioGreeks = useMemo(() => {
