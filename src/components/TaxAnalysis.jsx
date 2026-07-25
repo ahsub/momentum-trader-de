@@ -1,8 +1,8 @@
 import React, { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, FileText, Euro, Calendar, AlertTriangle, CheckCircle, TrendingUp, TrendingDown, Info } from 'lucide-react';
+import { Upload, FileText, Euro, Calendar, AlertTriangle, CheckCircle, TrendingUp, TrendingDown, Activity, Users, Church, User } from 'lucide-react';
 import { parseTaxCSV, mergeTaxCSVs, getYearlyOverview, TAX_CATEGORIES } from '../services/taxParser';
-import { calculateGermanTax, getRefundDeadline, WITHHOLDING_RATES } from '../services/taxRules';
+import { calculateGermanTax, getRefundDeadline, CHURCH_TAX_RATES } from '../services/taxRules';
 
 export default function TaxAnalysis() {
   const [files, setFiles] = useState([]);
@@ -10,6 +10,12 @@ export default function TaxAnalysis() {
   const [merged, setMerged] = useState(null);
   const [yearly, setYearly] = useState(null);
   const [activeYear, setActiveYear] = useState(null);
+
+  // Steuer-Einstellungen
+  const [isJointAccount, setIsJointAccount] = useState(false);
+  const [churchTaxKey, setChurchTaxKey] = useState('none');
+  const [personAChurch, setPersonAChurch] = useState(false);
+  const [personBChurch, setPersonBChurch] = useState(false);
 
   const handleFile = useCallback((file) => {
     if (!file || !file.name.endsWith('.csv')) return;
@@ -32,7 +38,14 @@ export default function TaxAnalysis() {
   };
 
   const currentYearData = activeYear && yearly ? yearly[activeYear] : null;
-  const taxCalc = currentYearData ? calculateGermanTax(currentYearData.summary.capitalGains + currentYearData.summary.investmentIncome) : null;
+
+  const taxCalc = currentYearData ? calculateGermanTax({
+    capitalIncome: currentYearData.summary.capitalGains + currentYearData.summary.investmentIncome,
+    isJointAccount,
+    churchTaxKey,
+    personAChurch,
+    personBChurch,
+  }) : null;
 
   const catColors = {
     [TAX_CATEGORIES.DIVIDEND]: 'text-emerald-400',
@@ -50,6 +63,86 @@ export default function TaxAnalysis() {
       <div>
         <h2 className="text-xl font-bold text-slate-100">Steueranalyse</h2>
         <p className="text-sm text-slate-500">CapTrader Kontoauszüge (CSV) — Kapitalerträge & Quellensteuer</p>
+      </div>
+
+      {/* Steuer-Einstellungen */}
+      <div className="rounded-xl bg-slate-800/30 border border-slate-700 p-4 space-y-4">
+        <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+          <Users className="h-4 w-4 text-slate-400" /> Kontoinhaber & Steuerpflicht
+        </h3>
+
+        {/* Einzel- / Gemeinschaftskonto */}
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-slate-500">Konto:</span>
+          <button
+            onClick={() => setIsJointAccount(false)}
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md transition-colors ${
+              !isJointAccount ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+            }`}
+          >
+            <User className="h-3 w-3" /> Einzelkonto
+          </button>
+          <button
+            onClick={() => setIsJointAccount(true)}
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md transition-colors ${
+              isJointAccount ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+            }`}
+          >
+            <Users className="h-3 w-3" /> Gemeinschaftskonto
+          </button>
+        </div>
+
+        {/* Kirchensteuer */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="text-xs text-slate-500">Kirchensteuer:</span>
+          {Object.entries(CHURCH_TAX_RATES).map(([key, { label }]) => (
+            <button
+              key={key}
+              onClick={() => setChurchTaxKey(key)}
+              className={`text-xs px-2 py-1 rounded-md transition-colors ${
+                churchTaxKey === key ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Kirchensteuerpflicht pro Person */}
+        {churchTaxKey !== 'none' && (
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={personAChurch}
+                onChange={(e) => setPersonAChurch(e.target.checked)}
+                className="rounded border-slate-600 bg-slate-800 text-emerald-500 focus:ring-emerald-500"
+              />
+              <Church className="h-3 w-3 text-slate-400" />
+              Person A kirchensteuerpflichtig
+            </label>
+            {isJointAccount && (
+              <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={personBChurch}
+                  onChange={(e) => setPersonBChurch(e.target.checked)}
+                  className="rounded border-slate-600 bg-slate-800 text-emerald-500 focus:ring-emerald-500"
+                />
+                <Church className="h-3 w-3 text-slate-400" />
+                Person B kirchensteuerpflichtig
+              </label>
+            )}
+          </div>
+        )}
+
+        {/* Hinweis */}
+        <p className="text-[10px] text-slate-500">
+          {isJointAccount 
+            ? `Sparer-Pauschbetrag: €2.000 (€1.000 pro Person) | Aufteilung 50/50`
+            : `Sparer-Pauschbetrag: €1.000`}
+          {churchTaxKey !== 'none' && ` | Kirchensteuer: ${CHURCH_TAX_RATES[churchTaxKey].label}`}
+        </p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -93,7 +186,6 @@ export default function TaxAnalysis() {
         {merged && (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
 
-            {/* Jahres-Selektor */}
             {yearly && Object.keys(yearly).length > 1 && (
               <div className="flex items-center gap-2">
                 <span className="text-xs text-slate-500">Jahr:</span>
@@ -108,7 +200,6 @@ export default function TaxAnalysis() {
               </div>
             )}
 
-            {/* Übersichtskarten */}
             {currentYearData && (
               <>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -138,14 +229,37 @@ export default function TaxAnalysis() {
                     <h3 className="text-sm font-semibold text-slate-200 mb-3 flex items-center gap-2">
                       <Euro className="h-4 w-4 text-emerald-400" />
                       Deutsche Steuerberechnung ({activeYear})
+                      {isJointAccount && <span className="text-xs text-slate-500 font-normal">— Gemeinschaftskonto</span>}
                     </h3>
+
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                       <div><p className="text-slate-500 text-xs">Kapitalerträge</p><p className="font-semibold text-slate-200">€{taxCalc.capitalIncome.toFixed(2)}</p></div>
                       <div><p className="text-slate-500 text-xs">Sparer-Pauschbetrag</p><p className="font-semibold text-emerald-400">€{taxCalc.freibetrag.toFixed(2)}</p></div>
                       <div><p className="text-slate-500 text-xs">Steuerpflichtig</p><p className="font-semibold text-amber-400">€{taxCalc.taxable.toFixed(2)}</p></div>
-                      <div><p className="text-slate-500 text-xs">Abgeltungsteuer (26,375%)</p><p className="font-semibold text-rose-400">€{taxCalc.tax.toFixed(2)}</p></div>
+                      <div><p className="text-slate-500 text-xs">Abgeltungsteuer (25%)</p><p className="font-semibold text-slate-300">€{taxCalc.abgeltungsteuer.toFixed(2)}</p></div>
                     </div>
-                    <p className="text-xs text-slate-500 mt-2">Effektiver Steuersatz: {taxCalc.effectiveRate.toFixed(2)}%</p>
+
+                    <div className="mt-3 grid grid-cols-2 md:grid-cols-3 gap-3 text-sm border-t border-slate-700 pt-3">
+                      <div><p className="text-slate-500 text-xs">Soli (5,5%)</p><p className="font-semibold text-slate-300">€{taxCalc.soli.toFixed(2)}</p></div>
+                      <div><p className="text-slate-500 text-xs">Kirchensteuer</p><p className="font-semibold text-slate-300">€{taxCalc.kirchensteuer.toFixed(2)}</p></div>
+                      <div><p className="text-slate-500 text-xs">Gesamtsteuer</p><p className="font-semibold text-rose-400">€{taxCalc.totalTax.toFixed(2)}</p></div>
+                    </div>
+
+                    <p className="text-xs text-slate-500 mt-2">
+                      Effektiver Steuersatz: <span className="font-semibold text-slate-300">{taxCalc.effectiveRate.toFixed(2)}%</span>
+                      {taxCalc.churchTaxNote && <span className="ml-2 text-slate-400">| {taxCalc.churchTaxNote}</span>}
+                    </p>
+
+                    {taxCalc.perPerson && (
+                      <div className="mt-3 p-2 bg-slate-900/30 rounded-lg text-xs">
+                        <p className="text-slate-500 mb-1">Pro Person (50/50 Aufteilung):</p>
+                        <div className="grid grid-cols-3 gap-2">
+                          <span>Anteil: €{taxCalc.perPerson.share.toFixed(2)}</span>
+                          <span>Steuerpflichtig: €{taxCalc.perPerson.taxableShare.toFixed(2)}</span>
+                          <span>Steuer: €{taxCalc.perPerson.taxShare.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
