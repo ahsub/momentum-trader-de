@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useTradeJournalStore } from '../src/stores/tradeJournalStore';
+import { useTradeJournalStore } from '../stores/tradeJournalStore';
 
 describe('Trade Journal Store', () => {
   beforeEach(() => {
