@@ -263,7 +263,34 @@ export default function TaxAnalysis() {
                   </div>
                 )}
 
-                {/* Kategorie-Übersicht */}
+                
+                {/* ⚠️ Nicht-deutscher Broker Hinweis */}
+                <div className="mt-4 rounded-lg bg-amber-500/10 border border-amber-500/20 p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium text-amber-400">Nicht-deutscher Broker (CapTrader/IBKR/Lynx)</p>
+                      <p className="text-xs text-amber-300/80 mt-1">
+                        Bei nicht-deutschen Brokern wird <strong>keine deutsche Kapitalertragsteuer einbehalten</strong>. 
+                        Der Sparer-Pauschbetrag (€1.000/€2.000) wird <strong>nicht automatisch angewendet</strong>.
+                      </p>
+                      <p className="text-xs text-amber-300/80 mt-1">
+                        <strong>Was Sie tun müssen:</strong>
+                      </p>
+                      <ul className="text-xs text-amber-300/70 mt-1 ml-4 list-disc">
+                        <li>Die berechnete Steuer von <strong>€{taxCalc.totalTax.toFixed(2)}</strong> ist in der Einkommensteuererklärung <strong>nachzuzahlen</strong></li>
+                        <li>Die einbehaltene Quellensteuer (€{currentYearData.summary.totalTaxWithheld.toFixed(2)}) wird <strong>angerechnet</strong></li>
+                        <li>Den Sparer-Pauschbetrag (€{taxCalc.freibetrag.toFixed(2)}) müssen Sie <strong>selbst geltend machen</strong> (Anlage KAP)</li>
+                        <li>Quellensteuer-Erstattungen müssen <strong>separat beantragt</strong> werden (nicht über ELSTER)</li>
+                      </ul>
+                      <p className="text-xs text-amber-300/60 mt-2">
+                        <strong>Hinweis:</strong> Diese Berechnung dient der Orientierung. Die tatsächliche Steuerfestsetzung erfolgt durch das Finanzamt.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+{/* Kategorie-Übersicht */}
                 <div className="rounded-xl bg-slate-800/30 border border-slate-700 overflow-hidden">
                   <div className="px-4 py-3 border-b border-slate-700">
                     <h3 className="text-sm font-semibold text-slate-200">Kategorien ({activeYear})</h3>
