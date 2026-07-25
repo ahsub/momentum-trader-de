@@ -9,7 +9,8 @@ import {
   Menu,
   X,
   LayoutDashboard,
-  Search
+  Search,
+  Upload
 } from 'lucide-react';
 
 // ─── Panels ───
@@ -20,6 +21,7 @@ import WatchlistPanel from './components/WatchlistPanel';
 import GapScanner from './components/GapScanner';
 import PortfolioPanel from './components/PortfolioPanel';
 import OptionsScanner from './components/OptionsScanner';
+import CapTraderImport from './components/CapTraderImport';
 
 // ─── NEW: Paper Mode Toggle ───
 import PaperModeToggle from './components/PaperModeToggle';
@@ -36,6 +38,7 @@ const NAV_ITEMS = [
   { id: 'gaps', label: 'Gap Scanner', icon: BarChart3 },
   { id: 'portfolio', label: 'Portfolio', icon: BookOpen },
   { id: 'scanner', label: 'Options Scanner', icon: Search },
+  { id: 'captrader', label: 'CapTrader Import', icon: Upload },
 ];
 
 function App() {
@@ -65,6 +68,7 @@ function App() {
       case 'gaps': return <GapScanner />;
       case 'portfolio': return <PortfolioPanel />;
       case 'scanner': return <OptionsScanner />;
+      case 'captrader': return <CapTraderImport />;
       default: return <PortfolioPanel />;
     }
   };
