@@ -27,9 +27,6 @@ function calculatePnL(position, currentPrice) {
 
 const isTestEnv = process.env.NODE_ENV === 'test';
 
-
-const isTestEnv = process.env.NODE_ENV === 'test';
-
 const portfolioStoreCreator = (set, get) => ({
       isPaperMode: false,
       livePositions: [],
