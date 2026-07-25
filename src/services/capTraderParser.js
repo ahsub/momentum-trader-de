@@ -28,6 +28,11 @@ function getText(el, tag, fallback = '') {
   return child ? child.textContent.trim() : fallback;
 }
 
+function getAttr(el, attr, fallback = '') {
+  if (!el) return fallback;
+  return el.getAttribute(attr) || fallback;
+}
+
 /**
  * Parst eine Zahl aus XML
  */
@@ -213,11 +218,12 @@ export function parseCapTraderXML(xmlString) {
   try {
     const doc = parseXML(xmlString);
 
+    const flexStatement = doc.querySelector('FlexStatement');
     return {
       success: true,
-      accountId: getText(doc.querySelector('FlexStatement'), 'accountId'),
-      fromDate: parseDate(getText(doc.querySelector('FlexStatement'), 'fromDate')),
-      toDate: parseDate(getText(doc.querySelector('FlexStatement'), 'toDate')),
+      accountId: getAttr(flexStatement, 'accountId'),
+      fromDate: parseDate(getAttr(flexStatement, 'fromDate')),
+      toDate: parseDate(getAttr(flexStatement, 'toDate')),
       openPositions: parseOpenPositions(doc),
       trades: parseTrades(doc),
       accountSummary: parseAccountSummary(doc),
