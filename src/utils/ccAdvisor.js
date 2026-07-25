@@ -201,7 +201,7 @@ export function analyzeCCRoll(position, { underlyingPrice, optionsChain, regime 
     triggers.push({ type: 'DTE', message: `Nur noch ${daysToExpiry} Tage bis Verfall`, severity: 'HIGH' });
   }
 
-  if (position.optionType === 'CALL' && underlyingPrice > position.strike * 1.02) {
+  if (position.optionType === 'CALL' && underlyingPrice > position.strike * 1.01) {
     triggers.push({ 
       type: 'ITM', 
       message: `Underlying $${underlyingPrice} > Strike $${position.strike} (+${((underlyingPrice/position.strike-1)*100).toFixed(1)}%)`, 
