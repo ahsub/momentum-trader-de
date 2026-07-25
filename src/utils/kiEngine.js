@@ -148,7 +148,7 @@ export function generateRecommendations(portfolioSummary, snapshot, positions) {
 
   // Wheel opportunity check
   const assignedStocks = positions.filter(p => 
-    p.assetClass === 'STOCK' && p.netQuantity > 0 && !p.openingTrades.some(t => t.code?.includes('O') && t.assetClass === 'STK')
+    p.assetClass === 'STOCK' && p.netQuantity > 0 && !p.openingTrades?.some(t => t.code?.includes('O') && t.assetClass === 'STK')
   );
   // Actually check for stocks without covered calls
   const stocksWithCC = new Set(
