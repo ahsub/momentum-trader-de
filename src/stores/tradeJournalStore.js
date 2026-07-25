@@ -1,8 +1,4 @@
 /**
- * 
- */
-cat > src/stores/tradeJournalStore.js << 'EOF'
-/**
  * Trade Journal Store — v2.1.0
  * momentum-trader-de
  * 
