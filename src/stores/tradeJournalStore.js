@@ -84,29 +84,30 @@ const storeCreator = (set, get) => ({
       },
       
       updateEntry: (id, updates) => {
-        set(state => ({
-          entries: state.entries.map(entry =>
+        const current = get().entries;
+        set({
+          entries: current.map(entry =>
             entry.id === id
               ? { ...entry, ...updates, updatedAt: new Date().toISOString() }
               : entry
           ),
-        }));
+        });
       },
       
       removeEntry: (id) => {
-        set(state => ({
-          entries: state.entries.filter(entry => entry.id !== id),
-        }));
+        const current = get().entries;
+        set({ entries: current.filter(entry => entry.id !== id) });
       },
       
       linkPosition: (journalId, positionId) => {
-        set(state => ({
-          entries: state.entries.map(entry =>
+        const current = get().entries;
+        set({
+          entries: current.map(entry =>
             entry.id === journalId
               ? { ...entry, linkedPositionId: positionId, updatedAt: new Date().toISOString() }
               : entry
           ),
-        }));
+        });
       },
       
       closeTrade: (id, exitData) => {
