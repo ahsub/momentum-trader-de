@@ -1,8 +1,9 @@
 import React, { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, FileText, Euro, Calendar, AlertTriangle, CheckCircle, TrendingUp, TrendingDown, Activity, Users, Church, User } from 'lucide-react';
+import { Upload, FileText, Euro, Calendar, AlertTriangle, CheckCircle, TrendingUp, TrendingDown, Activity, Users, Church, User, Printer } from 'lucide-react';
 import { parseTaxCSV, mergeTaxCSVs, getYearlyOverview, TAX_CATEGORIES } from '../services/taxParser';
 import { calculateGermanTax, getRefundDeadline, CHURCH_TAX_RATES } from '../services/taxRules';
+import { printTaxReport } from '../services/taxExport';
 
 export default function TaxAnalysis() {
   const [files, setFiles] = useState([]);
@@ -178,6 +179,18 @@ export default function TaxAnalysis() {
               className="mt-3 w-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold py-2 rounded-md transition-colors">
               Analyse starten
             </button>
+            {merged && activeYear && (
+              <button
+                onClick={() => printTaxReport(
+                  currentYearData?.transactions || [],
+                  currentYearData?.summary || merged.summary,
+                  { isJointAccount, churchTaxKey, personAChurch, personBChurch },
+                  activeYear
+                )}
+                className="mt-2 w-full bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold py-2 rounded-md transition-colors flex items-center justify-center gap-2">
+                <Printer className="h-3 w-3" /> Steuererläuterung drucken (PDF)
+              </button>
+            )}
           )}
         </div>
       </div>
