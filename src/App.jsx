@@ -40,7 +40,7 @@ const NAV_ITEMS = [
   { id: 'portfolio', label: 'Portfolio', icon: BookOpen },
   { id: 'scanner', label: 'Options Scanner', icon: Search },
   { id: 'captrader', label: 'CapTrader Import', icon: Upload },
-  { id: 'tax', label: 'Steueranalyse', icon: Receipt },
+  { id: 'tax', label: 'Steueranalyse', icon: FileText },
 ];
 
 function App() {
