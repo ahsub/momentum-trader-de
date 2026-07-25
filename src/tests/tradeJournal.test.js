@@ -24,9 +24,11 @@ describe('Trade Journal Store', () => {
       });
 
       expect(id).toBeDefined();
-      expect(store.entries).toHaveLength(1);
-      expect(store.entries[0].symbol).toBe('AAPL');
-      expect(store.entries[0].status).toBe('open');
+      // Re-read state after addEntry (zustand getState() returns snapshot)
+      const updatedStore = useTradeJournalStore.getState();
+      expect(updatedStore.entries).toHaveLength(1);
+      expect(updatedStore.entries[0].symbol).toBe('AAPL');
+      expect(updatedStore.entries[0].status).toBe('open');
     });
 
     it('generiert eine eindeutige ID', () => {
