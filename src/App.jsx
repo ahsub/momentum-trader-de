@@ -14,6 +14,8 @@ import {
 // ─── Panels ───
 import { Search } from 'lucide-react';
 import OptionsScanner from './components/OptionsScanner';
+import { Search } from 'lucide-react';
+import OptionsScanner from './components/OptionsScanner';
 import MomentumPanel from './components/MomentumPanel';
 import TrendPanel from './components/TrendPanel';
 import OrbPanel from './components/OrbPanel';
@@ -36,6 +38,7 @@ const NAV_ITEMS = [
   { id: 'watchlist', label: 'Watchlist', icon: List },
   { id: 'gaps', label: 'Gap Scanner', icon: BarChart3 },
   { id: 'portfolio', label: 'Portfolio', icon: BookOpen },
+  { id: 'scanner', label: 'Options Scanner', icon: Search },
 ];
 
 function App() {
@@ -67,6 +70,7 @@ function App() {
       case 'watchlist': return <WatchlistPanel />;
       case 'gaps': return <GapScanner />;
       case 'portfolio': return <PortfolioPanel />;
+      case 'scanner': return <OptionsScanner />;
       default: return <PortfolioPanel />;
     }
   };
