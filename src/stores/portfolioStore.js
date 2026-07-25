@@ -184,22 +184,17 @@ export const usePortfolioStore = create(
         isPaperMode: state.isPaperMode,
         paperPositions: state.paperPositions,
       }),
-      storage: {
+      getStorage: () => ({
         getItem: (name) => {
-          try {
-            const str = localStorage.getItem(name);
-            return str ? JSON.parse(str) : null;
-          } catch {
-            return null;
-          }
+          try { return localStorage.getItem(name); } catch { return null; }
         },
         setItem: (name, value) => {
-          try { localStorage.setItem(name, JSON.stringify(value)); } catch {}
+          try { localStorage.setItem(name, value); } catch {}
         },
         removeItem: (name) => {
           try { localStorage.removeItem(name); } catch {}
         },
-      },
+      }),
     }
   )
 );
