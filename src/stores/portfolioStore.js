@@ -184,7 +184,7 @@ export const usePortfolioStore = create(
         isPaperMode: state.isPaperMode,
         paperPositions: state.paperPositions,
       }),
-      getStorage: () => ({
+      storage: {
         getItem: (name) => {
           try { return localStorage.getItem(name); } catch { return null; }
         },
@@ -194,7 +194,7 @@ export const usePortfolioStore = create(
         removeItem: (name) => {
           try { localStorage.removeItem(name); } catch {}
         },
-      }),
+      },
     }
   )
 );
