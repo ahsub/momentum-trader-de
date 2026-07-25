@@ -22,6 +22,7 @@ import GapScanner from './components/GapScanner';
 import PortfolioPanel from './components/PortfolioPanel';
 import OptionsScanner from './components/OptionsScanner';
 import CapTraderImport from './components/CapTraderImport';
+import TaxAnalysis from './components/TaxAnalysis';
 
 // ─── NEW: Paper Mode Toggle ───
 import PaperModeToggle from './components/PaperModeToggle';
@@ -39,6 +40,7 @@ const NAV_ITEMS = [
   { id: 'portfolio', label: 'Portfolio', icon: BookOpen },
   { id: 'scanner', label: 'Options Scanner', icon: Search },
   { id: 'captrader', label: 'CapTrader Import', icon: Upload },
+  { id: 'tax', label: 'Steueranalyse', icon: Receipt },
 ];
 
 function App() {
@@ -69,6 +71,7 @@ function App() {
       case 'portfolio': return <PortfolioPanel />;
       case 'scanner': return <OptionsScanner />;
       case 'captrader': return <CapTraderImport />;
+      case 'tax': return <TaxAnalysis />;
       default: return <PortfolioPanel />;
     }
   };
