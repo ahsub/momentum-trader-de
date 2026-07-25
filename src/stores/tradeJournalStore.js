@@ -9,7 +9,6 @@
  */
 
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 
 export const SETUP_TYPES = [
   { id: 'csp', label: 'Cash-Secured Put', category: 'income' },
@@ -54,11 +53,7 @@ function generateJournalId() {
   return `journal-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
-const isTestEnv = process.env.NODE_ENV === 'test';
-
-
-
-const storeCreator = (set, get) => ({
+export const useTradeJournalStore = create((set, get) => ({
       entries: [],
       filters: {
         setupType: null,
@@ -288,23 +283,34 @@ const storeCreator = (set, get) => ({
       resetJournal: () => {
         set({ entries: [], filters: { setupType: null, tag: null, dateFrom: null, dateTo: null, status: null } });
       },
-    });
 
-export const useTradeJournalStore = isTestEnv
-  ? create(storeCreator)
-  : create(persist(storeCreator, {
-      name: 'momentum-trader-journal',
-      storage: {
-        getItem: (name) => {
-          try { return localStorage.getItem(name); } catch { return null; }
-        },
-        setItem: (name, value) => {
-          try { localStorage.setItem(name, value); } catch {}
-        },
-        removeItem: (name) => {
-          try { localStorage.removeItem(name); } catch {}
-        },
-      },
-    }));
+}));
+
+// Manual persistence for production (not in tests)
+if (typeof window !== 'undefined') {
+  const STORAGE_KEY = 'momentum-trader-journal';
+
+  // Load from localStorage on init
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const data = JSON.parse(saved);
+      if (data && data.entries) {
+        useTradeJournalStore.setState({ entries: data.entries });
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  // Save to localStorage on changes
+  useTradeJournalStore.subscribe((state) => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ entries: state.entries }));
+    } catch (e) {
+      // ignore
+    }
+  });
+}
 
 export default useTradeJournalStore;
