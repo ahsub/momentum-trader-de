@@ -212,7 +212,7 @@ export function analyzeCSPRoll(position, { underlyingPrice, optionsChain, regime
     triggers.push({ type: 'DTE', message: `Nur noch ${daysToExpiry} Tage bis Verfall`, severity: 'HIGH' });
   }
 
-  if (position.optionType === 'PUT' && underlyingPrice < position.strike * 0.98) {
+  if (position.optionType === 'PUT' && underlyingPrice < position.strike * 0.99) {
     triggers.push({ 
       type: 'ITM', 
       message: `Underlying $${underlyingPrice} < Strike $${position.strike}`, 
