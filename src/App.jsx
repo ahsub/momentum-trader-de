@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 
 // ─── Panels ───
+import { Search } from 'lucide-react';
+import OptionsScanner from './components/OptionsScanner';
 import MomentumPanel from './components/MomentumPanel';
 import TrendPanel from './components/TrendPanel';
 import OrbPanel from './components/OrbPanel';
@@ -26,6 +28,7 @@ import PaperModeToggle from './components/PaperModeToggle';
 import { usePortfolioStore } from './stores/portfolioStore';
 
 const NAV_ITEMS = [
+  { id: 'scanner', label: 'Options Scanner', icon: Search },
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'momentum', label: 'Momentum', icon: TrendingUp },
   { id: 'trend', label: 'Trend', icon: Activity },
@@ -57,6 +60,7 @@ function App() {
 
   const renderPanel = () => {
     switch (activeTab) {
+      case 'scanner': return <OptionsScanner />;
       case 'momentum': return <MomentumPanel />;
       case 'trend': return <TrendPanel />;
       case 'orb': return <OrbPanel />;
