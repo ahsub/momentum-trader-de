@@ -288,7 +288,7 @@ export const useTradeJournalStore = create(
     }),
     {
       name: 'momentum-trader-journal',
-      getStorage: () => ({
+      storage: {
         getItem: (name) => {
           try { return localStorage.getItem(name); } catch { return null; }
         },
@@ -298,7 +298,7 @@ export const useTradeJournalStore = create(
         removeItem: (name) => {
           try { localStorage.removeItem(name); } catch {}
         },
-      }),
+      },
     }
   )
 );
