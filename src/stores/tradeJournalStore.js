@@ -56,6 +56,9 @@ function generateJournalId() {
 
 const isTestEnv = process.env.NODE_ENV === 'test';
 
+
+const isTestEnv = process.env.NODE_ENV === 'test';
+
 const storeCreator = (set, get) => ({
       entries: [],
       filters: {
@@ -285,25 +288,9 @@ const storeCreator = (set, get) => ({
       resetJournal: () => {
         set({ entries: [], filters: { setupType: null, tag: null, dateFrom: null, dateTo: null, status: null } });
       },
-    }),
-    {
-      name: 'momentum-trader-journal',
-      storage: {
-        getItem: (name) => {
-          try { return localStorage.getItem(name); } catch { return null; }
-        },
-        setItem: (name, value) => {
-          try { localStorage.setItem(name, value); } catch {}
-        },
-        removeItem: (name) => {
-          try { localStorage.removeItem(name); } catch {}
-        },
-      },
-    }
-  )
-);
+    });
 
-export const useTradeJournalStore = isTestEnv 
+export const useTradeJournalStore = isTestEnv
   ? create(storeCreator)
   : create(persist(storeCreator, {
       name: 'momentum-trader-journal',
