@@ -54,9 +54,9 @@ function generateJournalId() {
   return `journal-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
-export const useTradeJournalStore = create(
-  persist(
-    (set, get) => ({
+const isTestEnv = process.env.NODE_ENV === 'test';
+
+const storeCreator = (set, get) => ({
       entries: [],
       filters: {
         setupType: null,
@@ -299,16 +299,25 @@ export const useTradeJournalStore = create(
           try { localStorage.removeItem(name); } catch {}
         },
       },
-      merge: (persistedState, currentState) => {
-        // If persisted state is empty/invalid, keep current (initial) state
-        if (!persistedState || !persistedState.entries) {
-          return currentState;
-        }
-        return { ...currentState, ...persistedState };
-      },
-      skipHydration: typeof window === 'undefined',
     }
   )
 );
+
+export const useTradeJournalStore = isTestEnv 
+  ? create(storeCreator)
+  : create(persist(storeCreator, {
+      name: 'momentum-trader-journal',
+      storage: {
+        getItem: (name) => {
+          try { return localStorage.getItem(name); } catch { return null; }
+        },
+        setItem: (name, value) => {
+          try { localStorage.setItem(name, value); } catch {}
+        },
+        removeItem: (name) => {
+          try { localStorage.removeItem(name); } catch {}
+        },
+      },
+    }));
 
 export default useTradeJournalStore;
