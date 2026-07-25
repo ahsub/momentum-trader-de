@@ -195,6 +195,11 @@ export const usePortfolioStore = create(
           try { localStorage.removeItem(name); } catch {}
         },
       },
+      merge: (persistedState, currentState) => {
+        if (!persistedState) return currentState;
+        return { ...currentState, ...persistedState };
+      },
+      skipHydration: typeof window === 'undefined',
     }
   )
 );
