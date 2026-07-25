@@ -19,8 +19,8 @@ describe('Greeks Calculator', () => {
         quantity: 1,
       });
 
-      expect(result.delta).toBeGreaterThan(0.4);
-      expect(result.delta).toBeLessThan(0.6);
+      expect(result.delta).toBeGreaterThan(40);
+      expect(result.delta).toBeLessThan(60);
       expect(result.gamma).toBeGreaterThan(0);
       expect(result.theta).toBeLessThan(0);
       expect(result.vega).toBeGreaterThan(0);
@@ -39,8 +39,8 @@ describe('Greeks Calculator', () => {
         quantity: 1,
       });
 
-      expect(result.delta).toBeGreaterThan(-0.6);
-      expect(result.delta).toBeLessThan(-0.4);
+      expect(result.delta).toBeGreaterThan(-60);
+      expect(result.delta).toBeLessThan(-40);
       expect(result.gamma).toBeGreaterThan(0);
       expect(result.theta).toBeLessThan(0);
       expect(result.vega).toBeGreaterThan(0);
@@ -57,7 +57,7 @@ describe('Greeks Calculator', () => {
         quantity: 1,
       });
 
-      expect(result.delta).toBeGreaterThan(0.95);
+      expect(result.delta).toBeGreaterThan(95);
     });
 
     it('Deep OTM Call hat Delta nahe 0', () => {
@@ -71,7 +71,7 @@ describe('Greeks Calculator', () => {
         quantity: 1,
       });
 
-      expect(result.delta).toBeLessThan(0.05);
+      expect(result.delta).toBeLessThan(5);
     });
 
     it('Short Position invertiert Delta-Zeichen', () => {
