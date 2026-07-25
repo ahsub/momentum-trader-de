@@ -51,11 +51,11 @@ vi.mock('../services/greeksCalculator', () => ({
     rho: 0.05,
   })),
   calculatePortfolioGreeks: vi.fn(() => ({
-    delta: 1.30,
-    gamma: 0.04,
-    theta: -0.30,
-    vega: 0.60,
-    rho: 0.10,
+    totalDelta: 1.30,
+    totalGamma: 0.04,
+    totalTheta: -0.30,
+    totalVega: 0.60,
+    totalRho: 0.10,
   })),
 }));
 
@@ -63,10 +63,10 @@ vi.mock('../components/GreeksBar', () => ({
   default: function GreeksBar({ greeks, compact }) {
     return (
       <div data-testid="greeks-bar" data-compact={compact ? 'true' : 'false'}>
-        <span data-testid="delta">Delta: {greeks?.delta}</span>
-        <span data-testid="gamma">Gamma: {greeks?.gamma}</span>
-        <span data-testid="theta">Theta: {greeks?.theta}</span>
-        <span data-testid="vega">Vega: {greeks?.vega}</span>
+        <span data-testid="delta">Delta: {greeks?.totalDelta ?? greeks?.delta}</span>
+        <span data-testid="gamma">Gamma: {greeks?.totalGamma ?? greeks?.gamma}</span>
+        <span data-testid="theta">Theta: {greeks?.totalTheta ?? greeks?.theta}</span>
+        <span data-testid="vega">Vega: {greeks?.totalVega ?? greeks?.vega}</span>
       </div>
     );
   },
@@ -89,15 +89,8 @@ vi.mock('../components/TradeJournalPanel', () => ({
   },
 }));
 
-vi.mock('../components/PaperModeToggle', () => ({
-  default: function PaperModeToggle() {
-    return <button data-testid="paper-mode-toggle">Paper Mode Toggle</button>;
-  },
-}));
-
 // ─── Components Under Test ───
 import PortfolioPanel from '../components/PortfolioPanel';
-import App from '../App';
 
 describe('Integration: PortfolioPanel with Greeks & Journal', () => {
   beforeEach(() => {
@@ -111,12 +104,13 @@ describe('Integration: PortfolioPanel with Greeks & Journal', () => {
     it('renders all three tabs: Portfolio, Greeks, Journal', () => {
       render(<PortfolioPanel />);
 
-      expect(screen.getByText('Portfolio')).toBeInTheDocument();
-      expect(screen.getByText('Greeks')).toBeInTheDocument();
-      expect(screen.getByText('Trade Journal')).toBeInTheDocument();
+      // Use getAllByText since "Portfolio" appears in both h2 title and tab button
+      expect(screen.getAllByText('Portfolio').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('Greeks').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('Trade Journal').length).toBeGreaterThanOrEqual(1);
     });
 
-    it('defaults to Portfolio tab', () => {
+    it('defaults to Portfolio tab showing positions table', () => {
       render(<PortfolioPanel />);
 
       // Positions table should be visible
@@ -127,7 +121,10 @@ describe('Integration: PortfolioPanel with Greeks & Journal', () => {
     it('switches to Greeks tab and renders GreeksBar', async () => {
       render(<PortfolioPanel />);
 
-      fireEvent.click(screen.getByText('Greeks'));
+      // Click the Greeks tab button (getAllByText returns array, click the button one)
+      const greeksTabs = screen.getAllByText('Greeks');
+      const greeksButton = greeksTabs.find(el => el.tagName === 'BUTTON');
+      fireEvent.click(greeksButton || greeksTabs[0]);
 
       await waitFor(() => {
         expect(screen.getByTestId('greeks-bar')).toBeInTheDocument();
@@ -140,7 +137,9 @@ describe('Integration: PortfolioPanel with Greeks & Journal', () => {
     it('switches to Journal tab and renders TradeJournalPanel', async () => {
       render(<PortfolioPanel />);
 
-      fireEvent.click(screen.getByText('Trade Journal'));
+      const journalTabs = screen.getAllByText('Trade Journal');
+      const journalButton = journalTabs.find(el => el.tagName === 'BUTTON');
+      fireEvent.click(journalButton || journalTabs[0]);
 
       await waitFor(() => {
         expect(screen.getByTestId('trade-journal-panel')).toBeInTheDocument();
@@ -150,7 +149,9 @@ describe('Integration: PortfolioPanel with Greeks & Journal', () => {
     it('renders PositionGreeksCard for each position in Greeks tab', async () => {
       render(<PortfolioPanel />);
 
-      fireEvent.click(screen.getByText('Greeks'));
+      const greeksTabs = screen.getAllByText('Greeks');
+      const greeksButton = greeksTabs.find(el => el.tagName === 'BUTTON');
+      fireEvent.click(greeksButton || greeksTabs[0]);
 
       await waitFor(() => {
         expect(screen.getByTestId('position-greeks-AAPL')).toBeInTheDocument();
@@ -215,7 +216,9 @@ describe('Integration: PortfolioPanel with Greeks & Journal', () => {
 
       render(<PortfolioPanel />);
 
-      expect(screen.getByText(/Paper Mode/)).toBeInTheDocument();
+      // Paper Mode appears in header text
+      const paperModeElements = screen.getAllByText(/Paper Mode/);
+      expect(paperModeElements.length).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -240,7 +243,10 @@ describe('Integration: PortfolioPanel with Greeks & Journal', () => {
       });
 
       render(<PortfolioPanel />);
-      fireEvent.click(screen.getByText('Greeks'));
+
+      const greeksTabs = screen.getAllByText('Greeks');
+      const greeksButton = greeksTabs.find(el => el.tagName === 'BUTTON');
+      fireEvent.click(greeksButton || greeksTabs[0]);
 
       expect(screen.getByText('No positions available for Greeks calculation')).toBeInTheDocument();
     });
