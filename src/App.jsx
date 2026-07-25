@@ -10,7 +10,8 @@ import {
   X,
   LayoutDashboard,
   Search,
-  Upload
+  Upload,
+  FileText
 } from 'lucide-react';
 
 // ─── Panels ───
