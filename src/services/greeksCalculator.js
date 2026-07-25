@@ -62,8 +62,9 @@ function calculateD1D2(S, K, T, r, sigma) {
  */
 export function calculateGreeks({ S, K, T, r, sigma, optionType, quantity = 1 }) {
   if (T <= 0 || sigma <= 0 || S <= 0 || K <= 0) {
+    const rawDelta = optionType === 'call' ? (quantity > 0 ? 1 : -1) : (quantity > 0 ? -1 : 1);
     return {
-      delta: optionType === 'call' ? (quantity > 0 ? 1 : -1) : (quantity > 0 ? -1 : 1),
+      delta: parseFloat((rawDelta * 100).toFixed(4)),
       gamma: 0,
       theta: 0,
       vega: 0,
