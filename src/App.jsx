@@ -8,20 +8,18 @@ import {
   BookOpen,
   Menu,
   X,
-  LayoutDashboard
+  LayoutDashboard,
+  Search
 } from 'lucide-react';
 
 // ─── Panels ───
-import { Search } from 'lucide-react';
-import OptionsScanner from './components/OptionsScanner';
-import { Search } from 'lucide-react';
-import OptionsScanner from './components/OptionsScanner';
 import MomentumPanel from './components/MomentumPanel';
 import TrendPanel from './components/TrendPanel';
 import OrbPanel from './components/OrbPanel';
 import WatchlistPanel from './components/WatchlistPanel';
 import GapScanner from './components/GapScanner';
 import PortfolioPanel from './components/PortfolioPanel';
+import OptionsScanner from './components/OptionsScanner';
 
 // ─── NEW: Paper Mode Toggle ───
 import PaperModeToggle from './components/PaperModeToggle';
@@ -30,7 +28,6 @@ import PaperModeToggle from './components/PaperModeToggle';
 import { usePortfolioStore } from './stores/portfolioStore';
 
 const NAV_ITEMS = [
-  { id: 'scanner', label: 'Options Scanner', icon: Search },
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'momentum', label: 'Momentum', icon: TrendingUp },
   { id: 'trend', label: 'Trend', icon: Activity },
@@ -45,11 +42,9 @@ function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // ─── Paper Mode State from Store ───
   const isPaperMode = usePortfolioStore((state) => state.isPaperMode);
   const togglePaperMode = usePortfolioStore((state) => state.togglePaperMode);
 
-  // ─── Keyboard Shortcuts ───
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'p' && e.ctrlKey) {
@@ -63,7 +58,6 @@ function App() {
 
   const renderPanel = () => {
     switch (activeTab) {
-      case 'scanner': return <OptionsScanner />;
       case 'momentum': return <MomentumPanel />;
       case 'trend': return <TrendPanel />;
       case 'orb': return <OrbPanel />;
@@ -77,61 +71,37 @@ function App() {
 
   return (
     <div className={`min-h-screen bg-slate-950 text-slate-100 transition-colors duration-300 ${isPaperMode ? 'paper-mode' : ''}`}>
-
-      {/* ═══════════════════════════════════════
-          HEADER with PaperModeToggle
-         ═══════════════════════════════════════ */}
       <header className="sticky top-0 z-50 border-b border-slate-800 bg-slate-900/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
-
-          {/* Logo */}
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/20">
-              <TrendingUp className="h-5 w-5 text-emerald-400" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500">
+              <TrendingUp className="h-5 w-5 text-white" />
             </div>
-            <div>
-              <h1 className="text-lg font-bold tracking-tight text-slate-100">
-                Momentum Trader
-              </h1>
-              <p className="text-xs text-slate-500">
-                v2.1.0 · {isPaperMode ? '📋 Paper Trading' : '🔴 Live Mode'}
-              </p>
-            </div>
+            <h1 className="text-lg font-bold tracking-tight">
+              Momentum<span className="text-emerald-400">Trader</span>
+              <span className="ml-2 text-xs font-medium text-slate-500">DE</span>
+            </h1>
           </div>
 
-          {/* Desktop Nav */}
-          <nav className="hidden items-center gap-1 md:flex">
-            {NAV_ITEMS.map((item) => {
-              const Icon = item.icon;
-              const isActive = activeTab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => setActiveTab(item.id)}
-                  className={`relative flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all ${
-                    isActive
-                      ? 'bg-emerald-500/10 text-emerald-400'
-                      : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                  }`}
-                >
-                  <Icon className="h-4 w-4" />
-                  {item.label}
-                  {isActive && (
-                    <motion.div
-                      layoutId="activeTab"
-                      className="absolute inset-0 rounded-lg border border-emerald-500/20"
-                      transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
-                    />
-                  )}
-                </button>
-              );
-            })}
-          </nav>
+          <div className="hidden md:flex items-center gap-1">
+            {NAV_ITEMS.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
+                className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all ${
+                  activeTab === item.id
+                    ? 'bg-emerald-500/10 text-emerald-400'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                }`}
+              >
+                <item.icon className="h-4 w-4" />
+                {item.label}
+              </button>
+            ))}
+          </div>
 
-          {/* Right Side: PaperModeToggle + Mobile Menu */}
           <div className="flex items-center gap-3">
             <PaperModeToggle />
-
             <button
               className="md:hidden rounded-lg p-2 text-slate-400 hover:bg-slate-800"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -141,42 +111,35 @@ function App() {
           </div>
         </div>
 
-        {/* Mobile Nav */}
         <AnimatePresence>
           {mobileMenuOpen && (
             <motion.div
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              className="overflow-hidden border-t border-slate-800 md:hidden"
+              className="md:hidden border-t border-slate-800 bg-slate-900/95"
             >
-              <div className="space-y-1 px-4 py-3">
-                {NAV_ITEMS.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => { setActiveTab(item.id); setMobileMenuOpen(false); }}
-                      className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium ${
-                        activeTab === item.id
-                          ? 'bg-emerald-500/10 text-emerald-400'
-                          : 'text-slate-400 hover:bg-slate-800'
-                      }`}
-                    >
-                      <Icon className="h-4 w-4" />
-                      {item.label}
-                    </button>
-                  );
-                })}
+              <div className="space-y-1 p-4">
+                {NAV_ITEMS.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => { setActiveTab(item.id); setMobileMenuOpen(false); }}
+                    className={`flex w-full items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-all ${
+                      activeTab === item.id
+                        ? 'bg-emerald-500/10 text-emerald-400'
+                        : 'text-slate-400 hover:bg-slate-800'
+                    }`}
+                  >
+                    <item.icon className="h-4 w-4" />
+                    {item.label}
+                  </button>
+                ))}
               </div>
             </motion.div>
           )}
         </AnimatePresence>
       </header>
 
-      {/* ═══════════════════════════════════════
-          MAIN CONTENT
-         ═══════════════════════════════════════ */}
       <main className="mx-auto max-w-7xl px-4 py-6">
         <AnimatePresence mode="wait">
           <motion.div
@@ -184,22 +147,12 @@ function App() {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.25 }}
+            transition={{ duration: 0.2 }}
           >
             {renderPanel()}
           </motion.div>
         </AnimatePresence>
       </main>
-
-      {/* ═══════════════════════════════════════
-          FOOTER
-         ═══════════════════════════════════════ */}
-      <footer className="border-t border-slate-800 bg-slate-900/50 py-4">
-        <div className="mx-auto max-w-7xl px-4 text-center text-xs text-slate-600">
-          Momentum Trader DE v2.1.0 · Built with React 19 + Vite 6 + Tailwind 4
-          {isPaperMode && ' · 📋 Paper Trading Active'}
-        </div>
-      </footer>
     </div>
   );
 }
