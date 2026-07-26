@@ -81,7 +81,7 @@ export default function OptionsScanner() {
             <span className="text-sm text-slate-400">v2.4.0 — Aggregator-first</span>
             {meta.schema && (
               <span className="px-2 py-0.5 rounded-full text-xs bg-slate-800 text-slate-300">
-                Schema {meta.schema}
+                Schema {meta.schema?.version || JSON.stringify(meta.schema)}
               </span>
             )}
             {meta.lastTradingDay && (
