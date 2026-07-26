@@ -96,7 +96,7 @@ export default function TaxAnalysis() {
         {/* Kirchensteuer */}
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs text-slate-500">Kirchensteuer:</span>
-          {Object.entries(CHURCH_TAX_RATES) map(([key, { label }]) => (
+          {Object.entries(CHURCH_TAX_RATES).map(([key, { label }]) => (
             <button
               key={key}
               onClick={() => setChurchTaxKey(key)}
