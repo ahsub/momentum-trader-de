@@ -110,11 +110,13 @@ function normalizeMasterData(raw) {
   const meta = master.meta || {};
 
   metaCache = {
-    lastTradingDay: meta.last_trading_day || meta.lastTradingDay || null,
-    errors: meta.errors || null,
-    schema: master.schema || null,
-    generated: meta.generated || null
-  };
+  lastTradingDay: meta.last_trading_day || meta.lastTradingDay || null,
+  errors: meta.errors || null,
+  schema: (master.schema && typeof master.schema === 'object' 
+    ? (master.schema.version || JSON.stringify(master.schema)) 
+    : (master.schema || null)),
+  generated: meta.generated || null
+};
 
   return tickers.map(t => {
     const price = parseFloat(t.price || t.close || 0);
