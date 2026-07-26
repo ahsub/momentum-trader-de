@@ -6,8 +6,9 @@ import {
   screenPutDiagonalCandidates,
   screenCollaredLeapCandidates,
   screenIronCondorCandidates,
-  validatePmccWidthRule,
+  validatePmccWidthRule
 } from '../services/optionsScreener';
+import { getMarketMeta } from '../services/koAggregatorBridge';
 
 const STRATEGIES = [
   { key: 'leap', label: 'LEAP', color: 'emerald' },
