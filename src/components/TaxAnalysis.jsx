@@ -96,7 +96,7 @@ export default function TaxAnalysis() {
         {/* Kirchensteuer */}
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs text-slate-500">Kirchensteuer:</span>
-          {Object.entries(CHURCH_TAX_RATES).map(([key, { label }]) => (
+          {Object.entries(CHURCH_TAX_RATES) map(([key, { label }]) => (
             <button
               key={key}
               onClick={() => setChurchTaxKey(key)}
@@ -175,6 +175,7 @@ export default function TaxAnalysis() {
             </ul>
           )}
           {files.length > 0 && (
+            <>
             <button onClick={analyzeAll}
               className="mt-3 w-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold py-2 rounded-md transition-colors">
               Analyse starten
@@ -191,6 +192,7 @@ export default function TaxAnalysis() {
                 <Printer className="h-3 w-3" /> Steuererläuterung drucken (PDF)
               </button>
             )}
+            </>
           )}
         </div>
       </div>
@@ -348,7 +350,7 @@ export default function TaxAnalysis() {
                       </p>
                       <p className="text-xs text-slate-500 mt-1">
                         {getRefundDeadline(activeYear).isExpired 
-                          ? 'Frist abgelaufen — Erstattung nicht mehr möglich'
+                          ? 'Frist abgelaufen — Erstatung nicht mehr moglich'
                           : `Noch ${getRefundDeadline(activeYear).daysLeft} Tage`}
                       </p>
                     </div>
