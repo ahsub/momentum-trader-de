@@ -1,93 +1,82 @@
 # Übergabeprotokoll — momentum-trader-de
-## Datum: 25. Juli 2026
-## Version: v2.2.0-beta
+## Datum: 26. Juli 2026
+## Version: v2.2.0-beta-2
 
 ---
 
-## ✅ Heute Abgeschlossen
+## ✅ Gestern Abgeschlossen (25.07.)
 
 ### 1. Options Scanner v2.2.0-alpha
-- **KO-Aggregator Data-Bridge** (`src/services/koAggregatorBridge.js`)
-  - Cloudflare KV Endpoint + GitHub Fallback
-  - Pre-Screen Filter für LEAP (Score ≥70, RSI 45-62, HVP <40, Trend > EMA200)
-  - Pre-Screen Filter für PMCC (Score ≥65, RSI 40-65, HVP <45)
-- **Options Screener** (`src/services/optionsScreener.js`)
-  - Finnhub API Integration (Options-Chain)
-  - Mock-Fallback bei fehlendem API-Key
-  - PMCC Width Rule Validator
-- **OptionsScanner UI** (`src/components/OptionsScanner.jsx`)
-  - LEAP / PMCC Tabs
-  - Detail-Panel mit Delta, DTE, IV Rank, Extrinsic %
-  - Width Rule Validierung (✅/❌)
-- **Tests:** 117/117 grün
+- KO-Aggregator Data-Bridge (Mock-Modus)
+- Finnhub Options-Chain Enrichment
+- LEAP/PMCC Pre-Screen + Width Rule Validator
+- OptionsScanner UI mit Detail-Panel
 
 ### 2. CapTrader Import v2.2.0-beta
-- **XML Parser** (`src/services/capTraderParser.js`)
-  - Parst Flex-Query XML (OpenPositions, Trades, EquitySummary)
-  - Option-spezifische Felder (Strike, Expiration, Put/Call)
-- **CapTraderImport UI** (`src/components/CapTraderImport.jsx`)
-  - Drag & Drop XML Upload
-  - Performance-Metriken (Win Rate, PnL, Profit Factor)
-  - Import in PortfolioStore + TradeJournalStore
-- **Tests:** 133/133 grün (inkl. CapTrader XML Parser Tests)
+- XML Parser (OpenPositions, Trades, EquitySummary)
+- CapTraderImport UI (Drag & Drop)
+- Performance-Metriken + Import in Stores
 
 ### 3. Steueranalyse v2.2.0-beta
-- **Tax Parser** (`src/services/taxParser.js`)
-  - CSV Kontoauszug Parser
-  - Steuerkategorisierung (Dividende, Zinsen, Kursgewinn, Optionsprämie, Steuern, Gebühren)
-  - EZB FX-Kurs Umrechnung (geschätzte Jahresdurchschnitte)
-  - Jahresübersicht
-- **Tax Rules** (`src/services/taxRules.js`)
-  - DBA-Regeln (17 Länder)
-  - Kirchensteuer (8% BW/BY, 9% andere BL)
-  - Gemeinschaftskonto (50/50 Aufteilung, €2.000 Freibetrag)
-  - Einzelkonto (€1.000 Freibetrag)
-  - Nicht-deutscher Broker Hinweis (keine Abgeltungsteuer einbehalten)
-- **TaxAnalysis UI** (`src/components/TaxAnalysis.jsx`)
-  - Steuer-Einstellungen (Konto-Typ, Kirchensteuer, Personen)
-  - Deutsche Steuerberechnung (Abgeltung + Soli + Kirchensteuer)
-  - Kategorie-Übersicht
-  - Erstattungsfristen-Warnung
-- **Tax Export** (`src/services/taxExport.js`)
-  - Druckbare Steuererläuterung als HTML
-  - Tagesgenaue Transaktionsliste mit Wechselkursen
-  - Kategorie-Summen
-  - Hinweise für Anlage KAP
+- CSV Parser + Steuerkategorisierung
+- Kirchensteuer (8%/9%) + Gemeinschaftskonto
+- Druckbare Steuererläuterung (HTML/PDF)
 
 ### 4. Bugfixes
-- `portfolioStore.js`: Doppelte `isTestEnv` Deklaration entfernt
-- `package.json`: `zustand` Dependency hinzugefügt
-- `PaperModeToggle.jsx`: Shell-Befehl-Artifact entfernt
-- `App.jsx`: `Receipt` → `FileText` Icon (lucide-react Kompatibilität)
-
-### 5. Vercel Deploy
-- `VITE_FINNHUB_KEY` in Environment Variables gesetzt
-- Build erfolgreich
-- App live: https://momentum-trader-de.vercel.app
+- portfolioStore.js: Doppelte isTestEnv entfernt
+- package.json: zustand hinzugefügt
+- PaperModeToggle.jsx: Shell-Artifact entfernt
+- App.jsx: Receipt → FileText Icon
+- TaxAnalysis.jsx: Datei-Input isoliert (26.07.)
 
 ---
 
-## ⚠️ Bekannte Probleme / TODOs
+## 🗓️ Heutiges Tagespensum (26.07.2026)
 
-1. **KO-Aggregator Endpoints offline**
-   - Cloudflare KV: 404
-   - GitHub Fallback: 404
+### Priorität 1: KO-Aggregator Reparatur 🚨
+**Ziel:** Echte Kandidaten im Options Scanner
+**Aufgaben:**
+- [ ] Cloudflare Worker Endpoint prüfen
+- [ ] CORS-Header konfigurieren
+- [ ] GitHub Fallback reparieren
+- [ ] Test: Scanner zeigt echte Daten
+
+### Priorität 2: Fehlende Optionsstrategien
+**Ziel:** ZEBRA, Put Diagonal, Collared LEAP, Iron Condor
+**Aufgaben:**
+- [ ] ZEBRA Screener implementieren
+- [ ] Put Diagonal Screener implementieren
+- [ ] Collared LEAP Screener implementieren
+- [ ] Iron Condor Screener implementieren
+- [ ] Tests für alle 4 Strategien
+
+### Priorität 3: Einstellungen-Panel
+**Ziel:** Steuerdaten persistieren
+**Aufgaben:**
+- [ ] Settings-Komponente erstellen
+- [ ] localStorage-Persistenz
+- [ ] Namen, Kirchensteuer, Kontotyp speichern
+- [ ] In Steueranalyse integrieren
+
+---
+
+## ⚠️ Bekannte Probleme
+
+1. **KO-Aggregator Endpoints offline** (404)
    - Scanner läuft im Mock-Modus
-   - **→ MORGEN REPARIEREN (Priorität 1)**
+   - **→ HEUTE REPARIEREN**
 
 2. **Wechselkurse in Steueranalyse**
-   - Aktuell geschätzte EZB-Jahresdurchschnitte
-   - Sollten durch tagesgenaue EZB-Kurse ersetzt werden
-   - **→ MORGEN (Priorität 2)**
+   - Geschätzte EZB-Jahresdurchschnitte
+   - **→ MORGEN (Phase 6)**
 
 3. **Finnhub Options-Chain**
    - Free-Tier liefert keine vollständigen Greeks
-   - Delta/IV werden aus Strike-Abstand/HVP geschätzt
-   - **→ Später: Premium Provider (Polygon.io)**
+   - **→ Später: Premium Provider**
 
 ---
 
-## 📁 Neue Dateien im Repo
+## 📁 Neue Dateien seit v2.1.0
 
 ```
 src/services/koAggregatorBridge.js
@@ -115,7 +104,7 @@ Tests       133 passed (133)
 
 ---
 
-## 🔑 API Keys (lokal in .env.local)
+## 🔑 API Keys
 
 ```
 VITE_FINNHUB_KEY=d85nf39r01qitd92t67gd85nf39r01qitd92t680
@@ -128,17 +117,21 @@ Auch in Vercel Environment Variables gesetzt.
 ## 🚀 Git Status
 
 ```
-main: 987ede3 (force redeploy) -> a45b0c4 (tax export) -> ...
-Alle Commits auf origin/main gepusht
-Lokal synchron mit origin/main
+main: Aktuell mit origin/main
+Alle Commits gepusht
+Lokal synchron
 ```
 
 ---
 
-## 📋 Nächste Schritte (Morgen)
+## 📋 Strategische Entscheidungen (26.07.)
+
+1. **KI-Empfehlungen:** Erst nach stabiler Struktur (Phase 8)
+2. **UnderlyingIQ:** Als Modul integrieren (Phase 7)
+3. **Einstellungen:** Persistenz in localStorage (Phase 9)
 
 Siehe STRATEGY_ROADMAP.md
 
 ---
 
-Erstellt: 25.07.2026 23:22
+Erstellt: 26.07.2026 08:20
