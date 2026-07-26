@@ -7,7 +7,6 @@ import {
   screenCollaredLeapCandidates,
   screenIronCondorCandidates,
   validatePmccWidthRule,
-  getMarketMeta
 } from '../services/optionsScreener';
 
 const STRATEGIES = [
