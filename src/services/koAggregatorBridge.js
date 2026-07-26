@@ -1,3 +1,8 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// KO AGGREGATOR BRIDGE v3 — Schema v3 kompatibel (40 Felder, Doppelpunkte in Keys)
+// Quellen: master_market_data (primary) → GitHub Fallback → Finnhub
+// ═══════════════════════════════════════════════════════════════════════════
+
 const MASTER_ENDPOINT = 'https://ko-sync.ahildebrand.workers.dev/public/master_market_data';
 const GITHUB_FALLBACK = 'https://raw.githubusercontent.com/ahsub/ko-aggregator/main/backups/tr_backup_latest.json';
 const FINNHUB_KEY = import.meta.env.VITE_FINNHUB_KEY || '';
@@ -6,9 +11,10 @@ const CACHE_TTL = 5 * 60 * 1000;
 let cache = null;
 let cacheTime = 0;
 let metaCache = null;
+let marketCache = null;
 
 // ═══════════════════════════════════════════════════════════════════════════
-// PRIMARY: master_market_data (ko-sync Worker)
+// PRIMARY: master_market_data (ko-sync Worker) — Schema v3
 // ═══════════════════════════════════════════════════════════════════════════
 
 export async function fetchKoAggregatorData() {
@@ -32,19 +38,31 @@ export async function fetchKoAggregatorData() {
     console.warn('[KO-Bridge] master_market_data fehlgeschlagen:', err.message);
   }
 
-  // 2. Sekundär: GitHub Backup (market-snapshot oder legacy)
+  // 2. Sekundär: GitHub Backup (Schema v3 oder legacy)
   try {
     const res = await fetch(GITHUB_FALLBACK);
     const backup = await res.json();
+
+    // Schema v3: backup.data mit market-Block
+    if (backup.data && backup.data.tickers) {
+      cache = normalizeMasterData(backup);
+      cacheTime = now;
+      console.log(`[KO-Bridge] ⚠️ Fallback v3: ${cache.length} Ticker`);
+      return cache;
+    }
+
+    // Legacy: backup.keys mit snapshot-Keys
     const marketKey = Object.keys(backup.keys || {}).find(k =>
-      k.startsWith('market-snapshot-')
+      k.includes('market:snapshot') || k.startsWith('market-snapshot-')
     );
     if (marketKey && backup.keys[marketKey]?.tickers) {
       cache = normalizeKoData(backup.keys[marketKey].tickers);
       cacheTime = now;
-      console.log(`[KO-Bridge] ⚠️ Fallback: ${cache.length} Ticker aus Backup ${marketKey}`);
+      console.log(`[KO-Bridge] ⚠️ Fallback legacy: ${cache.length} Ticker (${marketKey})`);
       return cache;
     }
+
+    // Ultra-legacy: direktes Array
     const legacy = normalizeKoData(backup);
     if (legacy.length > 0) {
       cache = legacy;
@@ -55,13 +73,13 @@ export async function fetchKoAggregatorData() {
     console.warn('[KO-Bridge] GitHub-Fallback fehlgeschlagen:', err2.message);
   }
 
-  // 3. Tertiär: Finnhub Live (nur wenn alles andere leer ist)
+  // 3. Tertiär: Finnhub Live
   console.warn('[KO-Bridge] 🔄 Keine Aggregator-Daten — wechsle zu Finnhub...');
   return await fetchFinnhubMarketData();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// OPTIONS WATCHLIST (KI-Strikes direkt aus dem Aggregator)
+// OPTIONS WATCHLIST
 // ═══════════════════════════════════════════════════════════════════════════
 
 export async function fetchOptionsWatchlist() {
@@ -88,7 +106,7 @@ export async function fetchOptionsWatchlist() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// META-INFO (Handelstag, Schema, Errors)
+// META & MARKET
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function getMarketMeta() {
@@ -100,32 +118,59 @@ export function getMarketMeta() {
   };
 }
 
+export function getMarketBlock() {
+  return marketCache || null;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
-// NORMALIZER: master_market_data → Frontend-Schema
+// NORMALIZER: master_market_data → Frontend-Schema (Schema v3)
 // ═══════════════════════════════════════════════════════════════════════════
 
 function normalizeMasterData(raw) {
+  // Schema v3: { data: { tickers: [...], meta: {...}, market: {...} } }
+  // oder legacy: { tickers: [...], meta: {...} }
   const master = raw.data || raw;
   const tickers = master.tickers || master.data?.tickers || [];
   const meta = master.meta || {};
+  const market = master.market || {};
 
+  // Meta-Cache
   metaCache = {
-  lastTradingDay: meta.last_trading_day || meta.lastTradingDay || null,
-  errors: meta.errors || null,
-  schema: (master.schema && typeof master.schema === 'object' 
-    ? (master.schema.version || JSON.stringify(master.schema)) 
-    : (master.schema || null)),
-  generated: meta.generated || null
-};
+    lastTradingDay: meta.last_trading_day || meta.lastTradingDay || null,
+    errors: meta.errors || null,
+    schema: (master.schema && typeof master.schema === 'object'
+      ? (master.schema.version || JSON.stringify(master.schema))
+      : (master.schema || null)),
+    generated: meta.generated || null,
+    runId: meta.run_id || null,
+    tickerCount: meta.ticker_count || tickers.length,
+    fieldCount: meta.field_count || null
+  };
+
+  // Market-Cache für UIQ-Bridge
+  marketCache = market;
+
+  // Lazy-Load UIQ-Bridge mit Market-Daten
+  if (typeof window !== 'undefined' && Object.keys(market).length > 0) {
+    import('./uiqBridge').then(({ setMarketMeta, resolveUiqFromMarketBlock }) => {
+      setMarketMeta(market);
+      const uiq = resolveUiqFromMarketBlock(market);
+      console.log(`[KO-Bridge] [MARKET] ✅ Regime: ${uiq.regime} | CSP-Timing: ${uiq.cspTiming?.signal || '?'}`);
+    }).catch(err => {
+      // UIQ-Bridge nicht verfügbar — nicht kritisch
+    });
+  }
 
   return tickers.map(t => {
     const price = parseFloat(t.price || t.close || 0);
+
     return {
       // Identität
       symbol: t.sym || t.symbol || t.ticker,
+      name: t.name || null,
       price,
 
-      // Scores (CSP = Cash-Secured Put, CC = Covered Call)
+      // Scores
       compositeScore: parseFloat(t.scoreCsp || t.scoreCc || t.score || t.compositeScore || 0),
       scoreCsp: parseFloat(t.scoreCsp || 0),
       scoreCc: parseFloat(t.scoreCc || 0),
@@ -177,6 +222,14 @@ function normalizeMasterData(raw) {
       sectors: t.sectors || t.sector || t.industry || '',
       marketCap: parseFloat(t.marketCap || t.market_cap || 0),
 
+      // Schema v3: Neue Felder (falls vorhanden)
+      epsRating: parseFloat(t.epsRating || t.eps_rating || 0),
+      rsRating: parseFloat(t.rsRating || t.rs_rating || 0),
+      salesGrowth: parseFloat(t.salesGrowth || t.sales_growth || 0),
+      earningsGrowth: parseFloat(t.earningsGrowth || t.earnings_growth || 0),
+      roe: parseFloat(t.roe || 0),
+      margin: parseFloat(t.margin || 0),
+
       // Meta
       timestamp: metaCache.lastTradingDay || new Date().toISOString(),
       source: 'Aggregator'
@@ -185,13 +238,14 @@ function normalizeMasterData(raw) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// LEGACY NORMALIZER (für Backup/Snapshot/Finnhub)
+// LEGACY NORMALIZER
 // ═══════════════════════════════════════════════════════════════════════════
 
 function normalizeKoData(raw) {
   const arr = Array.isArray(raw) ? raw : raw?.data || raw?.tickers || [];
   return arr.map(t => ({
     symbol: t.symbol || t.sym || t.ticker || t.name,
+    name: t.name || null,
     price: parseFloat(t.price || t.close || 0),
     compositeScore: parseFloat(t.compositeScore || t.score || t.scoreCsp || t.scoreCc || t.trendScore || 0),
     scoreCsp: parseFloat(t.scoreCsp || 0),
@@ -207,13 +261,14 @@ function normalizeKoData(raw) {
     atr14: parseFloat(t.atr14 || t.ATR14 || t.atr || 0),
     ivAtm: parseFloat(t.ivAtm || 0),
     ivRank: parseFloat(t.ivRank || 0),
+    sectors: t.sectors || t.sector || '',
     timestamp: t.timestamp || new Date().toISOString(),
     source: 'Backup'
   })).filter(t => t.symbol && t.price > 0);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// FINNHUB FALLBACK (nur wenn Aggregator komplett offline)
+// FINNHUB FALLBACK
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function fetchFinnhubMarketData() {
@@ -275,6 +330,7 @@ async function fetchSingleTicker(symbol) {
 
     return {
       symbol,
+      name: null,
       price: quote.c,
       compositeScore: indicators.compositeScore,
       scoreCsp: indicators.compositeScore,
@@ -290,6 +346,7 @@ async function fetchSingleTicker(symbol) {
       sma200: indicators.sma200,
       ivAtm: 0,
       ivRank: 0,
+      sectors: '',
       timestamp: new Date().toISOString(),
       source: 'Finnhub'
     };
