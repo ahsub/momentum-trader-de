@@ -1,11 +1,31 @@
 # STRATEGY_ROADMAP — momentum-trader-de
 
-## Aktueller Stand: v2.2.0-beta (25.07.2026)
+## Aktueller Stand: v2.2.0-beta (26.07.2026)
+
+---
+
+## Strategische Entscheidungen (26.07.2026)
+
+### 1. Reihenfolge: Struktur zuerst, KI später
+**Beschluss:** KI-Empfehlungs-Prompts (LLM-Integration) werden ERST implementiert, wenn:
+- Alle Tradingstrategien im Scanner verfügbar sind
+- Scanner zuverlässig funktioniert (KO-Aggregator repariert)
+- Portfolio-Import stabil läuft
+**Begründung:** KI-Empfehlungen ohne solide Datengrundlage wären unzuverlässig.
+
+### 2. UnderlyingIQ-Marktsentiment Integration
+**Beschluss:** Die Marktlage/Marktsentiment-Analyse aus `github.com/ahsub/axel-scanner` (Claude-AI Morning Briefings) wird als **Modul integriert** (nicht nur als Dokumentation).
+**Form:** React-Komponente, non-HTML-basiert, eigener Tab "Marktlage".
+**Zeitpunkt:** Phase 7 (nach Scanner-Reparatur + Optionsstrategien).
+
+### 3. Einstellungen-Persistenz
+**Beschluss:** Steuerrelevante Daten (Namen, Kirchensteuerpflicht, Kontotyp) werden in einem **Settings-Panel** voreingestellt und in `localStorage` persistiert.
+**Scope:** Gilt für Steueranalyse UND später für KI-Prompts (personalisierte Empfehlungen).
 
 ---
 
 ## Phase 1: Options Scanner ✅ (Abgeschlossen)
-- KO-Aggregator Data-Bridge
+- KO-Aggregator Data-Bridge (Mock-Modus aktiv)
 - Finnhub Options-Chain Enrichment
 - LEAP/PMCC Pre-Screen
 - PMCC Width Rule Validator
@@ -20,10 +40,11 @@
 - Steuerkategorisierung
 - Kirchensteuer + Gemeinschaftskonto
 - Druckbare Steuererläuterung (HTML/PDF)
+- UI-Bugfix: Datei-Input isoliert (26.07.2026)
 
 ---
 
-## Phase 4: KO-Aggregator Reparatur 🚨 (MORGEN — Priorität 1)
+## Phase 4: KO-Aggregator Reparatur 🚨 (HEUTE — Priorität 1)
 
 ### Problem
 - Cloudflare KV Endpoint offline (404)
@@ -53,78 +74,90 @@
 
 ---
 
-## Phase 5: Tagesgenaue Wechselkurse (MORGEN — Priorität 2)
+## Phase 5: Fehlende Optionsstrategien (HEUTE — Priorität 2)
+
+### Fehlende Strategien
+| Strategie | Beschreibung | Scanner-Logik |
+|-----------|--------------|---------------|
+| **ZEBRA** | Zero Extrinsic Back Ratio | ITM-Call-Spread + OTM-Put |
+| **Put Diagonal** | Calendar Spread mit Puts | Long Put LEAP + Short Put näherer DTE |
+| **Collared LEAP** | LEAP + Protective Put + Covered Call | Downside-Schutz mit Prämie |
+| **Iron Condor** | Neutraler Range-Trade | 4 Beine, definiertes Risiko |
+
+### Akzeptanzkriterien
+- [ ] Alle 4 Strategien im Scanner verfügbar
+- [ ] Strategie-spezifische Filter (IV-Rank, DTE, Delta)
+- [ ] Validatoren pro Strategie
+
+---
+
+## Phase 6: Tagesgenaue Wechselkurse (MORGEN)
 
 ### Problem
 - Steueranalyse nutzt geschätzte EZB-Jahresdurchschnitte
 - Steuererläuterung benötigt tagesgenaue Kurse
 
 ### Lösung
-1. **EZB Referenzkurs API**
-   - Endpoint: `https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml`
-   - Tagesaktueller EUR-Referenzkurs für alle Währungen
-   - Caching (täglich aktualisieren)
-
-2. **Historische Kurse**
-   - EZB XML Archive für vergangene Tage
-   - Oder: `https://api.exchangerate.host/` (kostenlos)
-
-### Akzeptanzkriterien
-- [ ] Jede Transaktion hat tagesgenauen Wechselkurs
-- [ ] Steuererläuterung zeigt tagesgenaue Kurse
-- [ ] Summen stimmen mit tatsächlichen Kursen überein
+- EZB `eurofxref-daily.xml` integrieren
+- Tagesaktueller EUR-Referenzkurs für alle Währungen
+- Caching (täglich aktualisieren)
 
 ---
 
-## Phase 6: Automatischer CapTrader Import (Wunsch)
+## Phase 7: UnderlyingIQ Marktsentiment (Wunsch)
 
-### Idee
-- CapTrader API (falls verfügbar)
-- Oder: Automatischer Download der Flex-Queries
-- Cron-Job für täglichen Import
+### Integration
+- Portierung aus `github.com/ahsub/axel-scanner` (index.html)
+- Neue React-Komponente: `MarketSentimentPanel.jsx`
+- Tab: "Marktlage"
+- Features:
+  - KI-enriched Morning Briefing
+  - Marktregime-Erkennung (Bull Quiet, Bear Volatile, etc.)
+  - VIX-Analyse
+  - Sektoren-Rotation
+  - Korrelations-Matrix
 
 ### Akzeptanzkriterien
-- [ ] Täglicher automatischer Import
-- [ ] Portfolio immer aktuell
-- [ ] Push-Benachrichtigung bei neuen Trades
+- [ ] Tägliches Morning Briefing (manuell oder API-getriggert)
+- [ ] Regime-basierte Scanner-Empfehlungen
+- [ ] Sentiment-Score für Portfolio-Entscheidungen
 
 ---
 
-## Phase 7: Erweiterte Options-Strategien
+## Phase 8: KI-Empfehlungen (SPÄTER — nach stabiler Struktur)
+
+### Voraussetzungen
+- Alle Scanner-Strategien implementiert
+- KO-Aggregator zuverlässig
+- Portfolio-Import stabil
+- Marktsentiment integriert
+
+### Features
+- LLM-Prompts für Trade-Empfehlungen
+- Risiko-bewusste Position-Sizing
+- Automatische Journal-Einträge mit KI-Analyse
+- "Was-wäre-wenn" Szenarien
+
+---
+
+## Phase 9: Einstellungen-Panel (HEUTE — nebenbei)
+
+### Features
+- Steuerpflichtige Daten (Name, Geburtsdatum)
+- Kirchensteuerpflicht pro Person
+- Kontotyp (Einzel/Gemeinschaft)
+- Broker-Auswahl (CapTrader, IBKR, Lynx)
+- API-Keys verwalten
+- Persistenz in localStorage
+
+---
+
+## Phase 10: Mobile App & Automatisierung
 
 ### Geplant
-- **ZEBRA** (Zero Extrinsic Back Ratio)
-- **Put Diagonal**
-- **Collared LEAP**
-- **Iron Condor Screener**
-
-### Akzeptanzkriterien
-- [ ] Alle 5 Säulen im Scanner verfügbar
-- [ ] Strategie-spezifische Validatoren
-- [ ] Backtesting mit historischen Daten
-
----
-
-## Phase 8: Performance-Vergleich
-
-### Idee
-- Historische Trades (aus Trade Journal) vs. Scanner-Empfehlungen
-- "Hätte ich den Scanner früher gehabt..."
-- Optimierungspotenzial quantifizieren
-
-### Akzeptanzkriterien
-- [ ] Vergleichs-Report pro Jahr
-- [ ] PnL-Vergleich: Aktuell vs. Scanner-optimiert
-- [ ] Visualisierung im Dashboard
-
----
-
-## Phase 9: Mobile App
-
-### Idee
 - PWA (Progressive Web App)
 - Push-Benachrichtigungen bei Scanner-Signalen
-- Mobile-optimierte UI
+- Automatischer CapTrader Import (Cron)
 
 ---
 
@@ -155,4 +188,4 @@
 
 ---
 
-Letzte Aktualisierung: 25.07.2026 23:22
+Letzte Aktualisierung: 26.07.2026 08:20
