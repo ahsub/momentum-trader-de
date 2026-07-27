@@ -1,12 +1,13 @@
 /**
- * Tax Report Service v2 – Korrekte Steuerberechnung für Deutschland
+ * Tax Report Service v3 – Korrekte Steuerberechnung für Deutschland
  * Basierend auf Refundex-Logik (ahsub/Refundex)
- * 
- * KORREKTUR v2:
+ *
+ * KORREKTUR v3:
  * - Options-P&L: Prämie empfangen = Gewinn, Prämie gezahlt = Verlust
- * - Assignment: Prämie geht in Aktien-Cost-Basis ein, nicht als Options-Gewinn
+ * - Assignment: Prämie geht in Aktien-Cost-Basis ein, NICHT als Options-Gewinn
  * - Expired: Short = volle Prämie, Long = totaler Verlust
  * - FIFO für Aktien mit korrekter Cost-Basis-Anpassung
+ * - Multiplier-Korrektur: IBKR liefert Prämie oft schon *100
  */
 
 const TAX_RATES = {
@@ -35,19 +36,13 @@ function round2(n) {
 // AKTIEN-FIFO (korrekt mit Options-Prämien-Anpassung)
 // ═══════════════════════════════════════════════════════════════
 
-/**
- * Berechnet FIFO-realisierte Gewinne für Aktien
- * Berücksichtigt Options-Prämien bei Assignment
- */
 export function calculateStockFIFOPnL(trades, optionsData = []) {
-  // Gruppiere Trades nach Symbol
   const bySymbol = {};
   trades.filter(t => t.assetCategory === 'STK').forEach(t => {
     if (!bySymbol[t.symbol]) bySymbol[t.symbol] = [];
     bySymbol[t.symbol].push(t);
   });
 
-  // Gruppiere Options-Assignments nach Underlying
   const optionAdjustments = {};
   optionsData.forEach(opt => {
     if (opt.assignment && opt.underlying) {
@@ -60,7 +55,7 @@ export function calculateStockFIFOPnL(trades, optionsData = []) {
 
   Object.entries(bySymbol).forEach(([symbol, symbolTrades]) => {
     const sorted = symbolTrades.sort((a, b) => new Date(a.tradeDate) - new Date(b.tradeDate));
-    const fifoQueue = []; // { qty, price, commission, date, optionPremiumEUR }
+    const fifoQueue = [];
 
     sorted.forEach(trade => {
       const qty = Math.abs(trade.quantity);
@@ -70,9 +65,8 @@ export function calculateStockFIFOPnL(trades, optionsData = []) {
       const commissionEUR = toEUR(Math.abs(trade.commission || 0), fxRate, currency);
 
       if (trade.buySell === 'BUY') {
-        // Prüfe ob dieser Kauf durch ein Options-Assignment ausgelöst wurde
-        const optAdj = optionAdjustments[symbol]?.find(o => 
-          o.assignmentDate === trade.tradeDate && 
+        const optAdj = optionAdjustments[symbol]?.find(o =>
+          o.assignmentDate === trade.tradeDate &&
           Math.abs(o.assignedQty - qty) < 0.01
         );
 
@@ -145,18 +139,19 @@ export function calculateStockFIFOPnL(trades, optionsData = []) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// OPTIONEN-P&L (korrigiert)
+// OPTIONEN-P&L (korrigiert v3)
 // ═══════════════════════════════════════════════════════════════
 
 /**
  * KORREKTE Options-P&L Berechnung
- * 
+ *
  * Regeln:
- * 1. SHORT Option: Prämie empfangen = Gewinn (positiv)
- * 2. LONG Option: Prämie gezahlt = Verlust (negativ)
- * 3. Assignment: Prämie geht NICHT in Options-P&L, sondern in Aktien-Cost-Basis
- * 4. Expired worthless: Short = volle Prämie, Long = totaler Verlust
- * 5. Geschlossen vor Expiry: Differenz zwischen Open und Close
+ * 1. SHORT OPEN: Prämie empfangen = Gewinn (positiv)
+ * 2. LONG OPEN: Prämie gezahlt = Verlust (negativ)
+ * 3. SHORT CLOSE (BUY back): Kaufpreis = Verlust (negativ)
+ * 4. LONG CLOSE (SELL): Verkaufserlös = Gewinn (positiv)
+ * 5. Assignment: Prämie geht NICHT in Options-P&L, sondern in Aktien-Cost-Basis
+ * 6. Expired worthless: Short = volle Prämie, Long = totaler Verlust
  */
 export function calculateOptionsPnL(trades) {
   const optionTrades = trades.filter(t => t.assetCategory === 'OPT');
@@ -170,7 +165,7 @@ export function calculateOptionsPnL(trades) {
   });
 
   const positions = [];
-  const dailyPnL = {}; // Tagesgenaue Aufstellung
+  const dailyPnL = {};
 
   Object.entries(grouped).forEach(([key, trades]) => {
     const sorted = trades.sort((a, b) => new Date(a.tradeDate) - new Date(b.tradeDate));
@@ -184,28 +179,34 @@ export function calculateOptionsPnL(trades) {
     sorted.forEach(t => {
       const fxRate = t.fxRateToBase || 1;
       const currency = t.currency || 'EUR';
+      // Multiplier: IBKR liefert quantity oft schon *100, prüfe ob wir multiplizieren müssen
+      // Wenn quantity z.B. 1 für 1 Contract ist, multiplier = 100
+      // Wenn quantity schon 100 ist, multiplier = 1
+      const rawQty = Math.abs(t.quantity);
       const multiplier = t.multiplier || 100;
+      // Prämie: Bei IBKR ist tradePrice oft der Preis pro Share, also * multiplier für Contract
+      // Aber: Wenn quantity schon 100 ist, ist es wahrscheinlich schon Contract-Prämie
+      const isContractQty = rawQty >= 100 && Number.isInteger(rawQty / 100);
+      const effectiveMultiplier = isContractQty ? 1 : multiplier;
+      const contractQty = isContractQty ? rawQty / multiplier : rawQty;
 
-      // Prämie = quantity * price * multiplier
-      const premium = Math.abs(t.quantity) * t.tradePrice * multiplier;
+      const premium = contractQty * t.tradePrice * effectiveMultiplier;
       const premiumEUR = toEUR(premium, fxRate, currency);
       const commissionEUR = toEUR(Math.abs(t.commission || 0), fxRate, currency);
 
-      // KORREKTUR: Bei Assignment (Notes enthält 'A') wird Prämie NICHT als Gewinn gezählt
-      // Sie geht in die Aktien-Cost-Basis ein
-      const isAssignment = t.notes?.includes('A') || t.openCloseIndicator === '';
+      // Assignment erkennen: openCloseIndicator === '' oder notes enthält 'A'
+      const isAssignment = !t.openCloseIndicator || t.openCloseIndicator === '' || t.notes?.includes('A');
 
       if (isAssignment) {
         isAssigned = true;
-        // Prämie wird bei Assignment nicht als Options-Gewinn gezählt
-        // Sie wird später in der Aktien-FIFO als Cost-Basis-Anpassung berücksichtigt
+        // Prämie bei Assignment NICHT als Options-Gewinn zählen
         tradeDetails.push({
           date: t.tradeDate,
           type: 'ASSIGNMENT',
           buySell: t.buySell,
-          quantity: Math.abs(t.quantity),
+          quantity: contractQty,
           price: t.tradePrice,
-          premiumEUR: 0, // Nicht als Gewinn
+          premiumEUR: 0,
           commissionEUR,
           fxRate,
           currency,
@@ -213,47 +214,110 @@ export function calculateOptionsPnL(trades) {
           assignedStrike: t.strike,
         });
       } else if (t.buySell === 'SELL') {
-        // Short: Prämie empfangen = Gewinn
-        netPremiumEUR += premiumEUR - commissionEUR;
-        tradeDetails.push({
-          date: t.tradeDate,
-          type: 'OPEN_SHORT',
-          buySell: 'SELL',
-          quantity: Math.abs(t.quantity),
-          price: t.tradePrice,
-          premiumEUR: premiumEUR - commissionEUR,
-          commissionEUR,
-          fxRate,
-          currency,
-        });
+        // SELL = Prämie empfangen (Short-Open oder Long-Close)
+        if (t.openCloseIndicator === 'O') {
+          // Short Open: Gewinn
+          netPremiumEUR += premiumEUR - commissionEUR;
+          tradeDetails.push({
+            date: t.tradeDate,
+            type: 'OPEN_SHORT',
+            buySell: 'SELL',
+            quantity: contractQty,
+            price: t.tradePrice,
+            premiumEUR: premiumEUR - commissionEUR,
+            commissionEUR,
+            fxRate,
+            currency,
+          });
+        } else if (t.openCloseIndicator === 'C') {
+          // Long Close: Gewinn
+          netPremiumEUR += premiumEUR - commissionEUR;
+          tradeDetails.push({
+            date: t.tradeDate,
+            type: 'CLOSE_LONG',
+            buySell: 'SELL',
+            quantity: contractQty,
+            price: t.tradePrice,
+            premiumEUR: premiumEUR - commissionEUR,
+            commissionEUR,
+            fxRate,
+            currency,
+          });
+        } else {
+          // Fallback: SELL = immer Gewinn
+          netPremiumEUR += premiumEUR - commissionEUR;
+          tradeDetails.push({
+            date: t.tradeDate,
+            type: 'SELL',
+            buySell: 'SELL',
+            quantity: contractQty,
+            price: t.tradePrice,
+            premiumEUR: premiumEUR - commissionEUR,
+            commissionEUR,
+            fxRate,
+            currency,
+          });
+        }
       } else if (t.buySell === 'BUY') {
-        // Long: Prämie gezahlt = Verlust
-        // ODER Short schließen: Kaufpreis = Verlust
-        netPremiumEUR -= premiumEUR + commissionEUR;
-        tradeDetails.push({
-          date: t.tradeDate,
-          type: t.openCloseIndicator === 'C' ? 'CLOSE_SHORT' : 'OPEN_LONG',
-          buySell: 'BUY',
-          quantity: Math.abs(t.quantity),
-          price: t.tradePrice,
-          premiumEUR: -(premiumEUR + commissionEUR),
-          commissionEUR,
-          fxRate,
-          currency,
-        });
+        // BUY = Prämie gezahlt (Long-Open oder Short-Close)
+        if (t.openCloseIndicator === 'O') {
+          // Long Open: Verlust
+          netPremiumEUR -= premiumEUR + commissionEUR;
+          tradeDetails.push({
+            date: t.tradeDate,
+            type: 'OPEN_LONG',
+            buySell: 'BUY',
+            quantity: contractQty,
+            price: t.tradePrice,
+            premiumEUR: -(premiumEUR + commissionEUR),
+            commissionEUR,
+            fxRate,
+            currency,
+          });
+        } else if (t.openCloseIndicator === 'C') {
+          // Short Close: Verlust
+          netPremiumEUR -= premiumEUR + commissionEUR;
+          tradeDetails.push({
+            date: t.tradeDate,
+            type: 'CLOSE_SHORT',
+            buySell: 'BUY',
+            quantity: contractQty,
+            price: t.tradePrice,
+            premiumEUR: -(premiumEUR + commissionEUR),
+            commissionEUR,
+            fxRate,
+            currency,
+          });
+        } else {
+          // Fallback: BUY = immer Verlust
+          netPremiumEUR -= premiumEUR + commissionEUR;
+          tradeDetails.push({
+            date: t.tradeDate,
+            type: 'BUY',
+            buySell: 'BUY',
+            quantity: contractQty,
+            price: t.tradePrice,
+            premiumEUR: -(premiumEUR + commissionEUR),
+            commissionEUR,
+            fxRate,
+            currency,
+          });
+        }
       }
     });
 
-    // Prüfe auf Expiration (wenn letzter Trade ein SELL/Short war und keine Close/Assign)
+    // Prüfe auf Expiration: Wenn letzter Trade ein Short-Open war und keine Close/Assign
     const lastTrade = sorted[sorted.length - 1];
-    if (lastTrade.buySell === 'SELL' && !isAssigned && sorted.length === 1) {
+    if (lastTrade?.buySell === 'SELL' && !isAssigned && sorted.length === 1) {
       isExpired = true;
     }
 
-    // Tagesgenaue Aufstellung
+    // Tagesgenaue Aufstellung (nur nicht-Assignment Trades mit Prämie)
     tradeDetails.forEach(td => {
       if (td.premiumEUR !== 0) {
-        if (!dailyPnL[td.date]) dailyPnL[td.date] = { date: td.date, stockPnL: 0, optionsPnL: 0, dividends: 0, total: 0 };
+        if (!dailyPnL[td.date]) {
+          dailyPnL[td.date] = { date: td.date, stockPnL: 0, optionsPnL: 0, dividends: 0, total: 0 };
+        }
         dailyPnL[td.date].optionsPnL += td.premiumEUR;
         dailyPnL[td.date].total += td.premiumEUR;
       }
@@ -303,17 +367,17 @@ export function calculateDividends(parsedData) {
 // STEUERBERECHNUNG
 // ═══════════════════════════════════════════════════════════════
 
-export function calculateGermanTaxes({ 
-  realizedStockPnL_EUR = 0, 
+export function calculateGermanTaxes({
+  realizedStockPnL_EUR = 0,
   realizedOptionsPnL_EUR = 0,
   dividends_EUR = [],
-  churchTaxKey = 'none', 
-  isJointAccount = false 
+  churchTaxKey = 'none',
+  isJointAccount = false
 }) {
   const sparerPauschbetrag = isJointAccount ? 2000 : 1000;
 
   const totalDividends = dividends_EUR.reduce((s, d) => s + d.amountEUR, 0);
-  const totalRealized = realizedStockPnL_EUR + realizedOptionsPnL_EUR;
+  const totalRealized = realizedStockPnL_EUR + realizedOptionsPnL_EUR + totalDividends;
 
   // Kapitalerträge = Realisierte Gewinne + Dividenden
   const taxableGains = Math.max(0, totalRealized);
@@ -350,7 +414,7 @@ export function calculateGermanTaxes({
 }
 
 // ═══════════════════════════════════════════════════════════════
-// JAHRESBERICHT (korrigiert)
+// JAHRESBERICHT (korrigiert v3)
 // ═══════════════════════════════════════════════════════════════
 
 export function generateAnnualReport(parsedData, year, taxOptions = {}) {
@@ -461,7 +525,7 @@ export function exportTaxCSV(report) {
   // Optionen (nur nicht-Assignment Trades)
   report.optionsDetails.positions.forEach(pos => {
     pos.tradeDetails.forEach(td => {
-      if (td.type === 'ASSIGNMENT') return; // Assignment ist bereits in Aktien
+      if (td.type === 'ASSIGNMENT') return;
       rows.push([
         td.date,
         `Option_${pos.putCall}_${td.type}`,
@@ -501,13 +565,9 @@ export function exportTaxCSV(report) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// MULTI-YEAR REPORT
+// JSON EXPORT
 // ═══════════════════════════════════════════════════════════════
 
-
-/**
- * JSON Export für Steuerberater
- */
 export function exportTaxJSON(report) {
   return JSON.stringify({
     year: report.year,
@@ -525,6 +585,10 @@ export function exportTaxJSON(report) {
     dividends: report.dividends,
   }, null, 2);
 }
+
+// ═══════════════════════════════════════════════════════════════
+// MULTI-YEAR REPORT
+// ═══════════════════════════════════════════════════════════════
 
 export function generateMultiYearReport(parsedData, years, taxOptions = {}) {
   return years.map(year => generateAnnualReport(parsedData, year, taxOptions));
