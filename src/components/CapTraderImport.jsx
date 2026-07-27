@@ -1,111 +1,126 @@
-import React, { useState, useCallback } from 'react';
-import { Upload, FileText, CheckCircle, AlertTriangle, X } from 'lucide-react';
+import { useState, useCallback } from 'react';
 import { parseMultipleFlexQueries, extractUnderlyings } from '../services/capTraderParser';
 import { savePortfolioData, getCCScreenerInput, calculatePortfolioMetrics } from '../services/portfolioBridge';
 import { generateAnnualReport, exportTaxCSV, exportTaxJSON } from '../services/taxReportService';
 
 export default function CapTraderImport({ onImport, onClose }) {
   const [files, setFiles] = useState([]);
-  const [parsing, setParsing] = useState(false);
-  const [error, setError] = useState(null);
   const [preview, setPreview] = useState(null);
-  const [taxPreview, setTaxPreview] = useState(null);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [selectedYear, setSelectedYear] = useState(null);
   const [showTaxDetails, setShowTaxDetails] = useState(false);
 
-  const handleFile = useCallback(async (file) => {
+  const handleFile = useCallback((file) => {
     if (!file.name.endsWith('.xml')) {
-      setError('Nur .xml Dateien von CapTrader/IBKR Flex Query');
+      setError('Nur .xml Dateien erlaubt');
       return;
     }
-
-    try {
-      const text = await file.text();
-      setFiles(prev => [...prev, { name: file.name, content: text, size: file.size }]);
-      setError(null);
-    } catch (err) {
-      setError('Fehler beim Lesen: ' + err.message);
-    }
+    setFiles(prev => [...prev, file]);
+    setError(null);
   }, []);
 
-  const parseFiles = useCallback(() => {
-    if (files.length === 0) return;
-    setParsing(true);
+  const parseFiles = useCallback(async () => {
+    setLoading(true);
     setError(null);
-
     try {
-      const xmlStrings = files.map(f => f.content);
-      const parsed = parseMultipleFlexQueries(xmlStrings);
-      
-      const positions = getCCScreenerInput(parsed);
-      const metrics = calculatePortfolioMetrics(parsed);
-      const underlyings = extractUnderlyings(parsed);
+      const texts = await Promise.all(
+        files.map(f => f.text())
+      );
+      const parsedData = parseMultipleFlexQueries(texts);
 
-      // Tax preview for available years
-      const years = [...new Set(parsed.allTrades?.map(t => new Date(t.tradeDate).getFullYear()) || [])].sort();
+      // Portfolio-Metriken
+      const metrics = calculatePortfolioMetrics(parsedData);
+      const ccPositions = getCCScreenerInput(parsedData);
+
+      // Steuerberichte für alle Jahre
+      const years = [...new Set([
+        ...(parsedData.allTrades?.map(t => new Date(t.tradeDate).getFullYear()) || []),
+        ...(parsedData.allDividends?.map(d => new Date(d.date).getFullYear()) || [])
+      ])].sort((a, b) => b - a);
+
       const taxReports = {};
       years.forEach(year => {
-        taxReports[year] = generateAnnualReport(parsed, year);
+        taxReports[year] = generateAnnualReport(parsedData, year);
       });
 
-      setPreview({
-        positions,
-        metrics,
-        underlyings,
-        fileCount: files.length,
-        accountId: parsed.meta[0]?.accountId,
-        dateRange: `${parsed.meta[0]?.fromDate} – ${parsed.meta[parsed.meta.length - 1]?.toDate}`,
+      const previewData = {
+        accountId: parsedData.accountInformation?.[0]?.accountId || 'Unbekannt',
+        metrics: {
+          totalValue: metrics.totalValue || 0,
+          positionCount: metrics.positionCount || 0,
+          totalUnrealized: metrics.totalUnrealized || 0,
+        },
+        positions: ccPositions || [],
         taxReports,
         years,
-      });
-      
-      setTaxPreview(taxReports[years[years.length - 1]]);
+        parsedData,
+      };
+
+      setPreview(previewData);
+      if (years.length > 0) setSelectedYear(years[0]);
     } catch (err) {
-      setError('Parse-Fehler: ' + err.message);
+      console.error('Parse error:', err);
+      setError('Fehler beim Parsen: ' + err.message);
     } finally {
-      setParsing(false);
+      setLoading(false);
     }
   }, [files]);
 
-  const confirmImport = useCallback(() => {
+  const handleImport = useCallback(() => {
     if (!preview) return;
-    
-    const xmlStrings = files.map(f => f.content);
-    const parsed = parseMultipleFlexQueries(xmlStrings);
-    savePortfolioData(parsed);
-    
-    onImport?.({
-      portfolio: parsed,
-      ccInput: getCCScreenerInput(parsed),
-      metrics: calculatePortfolioMetrics(parsed),
-    });
-    
+    savePortfolioData(preview.parsedData);
+    onImport?.(preview.parsedData);
     onClose?.();
-  }, [files, preview, onImport, onClose]);
+  }, [preview, onImport, onClose]);
 
-  const downloadTaxCSV = () => {
-    if (!taxPreview) return;
-    const csv = exportTaxCSV(taxPreview);
+  const handleExportCSV = useCallback(() => {
+    if (!preview?.taxReports || !selectedYear) return;
+    const report = preview.taxReports[selectedYear];
+    const csv = exportTaxCSV(report);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `Steuerreport_${taxPreview.year}.csv`;
-    link.click();
-  };
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Steuer_${selectedYear}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [preview, selectedYear]);
 
-  const downloadTaxJSON = () => {
-    if (!taxPreview) return;
-    const json = exportTaxJSON(taxPreview);
+  const handleExportJSON = useCallback(() => {
+    if (!preview?.taxReports || !selectedYear) return;
+    const report = preview.taxReports[selectedYear];
+    const json = exportTaxJSON(report);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `Steuerreport_${taxPreview.year}.json`;
-    link.click();
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Steuer_${selectedYear}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [preview, selectedYear]);
+
+  const taxPreview = selectedYear && preview?.taxReports ? preview.taxReports[selectedYear] : null;
+
+  // Hilfsfunktion: dailyBreakdown in dailyReport-Format umwandeln
+  const getDailyReport = (report) => {
+    if (!report?.dailyBreakdown) return [];
+    return report.dailyBreakdown.map(day => ({
+      dateFormatted: day.date ? new Date(day.date).toLocaleDateString('de-DE') : '',
+      totalDay: day.total || 0,
+      stockPnL: day.stockPnL || 0,
+      optionsPnL: day.optionsPnL || 0,
+      dividendIncome: day.dividends || 0,
+      stockTrades: day.stockPnL !== 0 ? [{ pnl: day.stockPnL }] : [],
+      optionTrades: day.optionsPnL !== 0 ? [{ premium: day.optionsPnL }] : [],
+      dividends: day.dividends !== 0 ? [{ amount: day.dividends }] : [],
+    }));
   };
 
+  const dailyReport = taxPreview ? getDailyReport(taxPreview) : [];
+
   return (
-    <div className="space-y-6 max-h-[80vh] overflow-y-auto pr-2">
+    <div className="space-y-4">
       {/* Upload Zone */}
       <div
         onDrop={(e) => { e.preventDefault(); Array.from(e.dataTransfer.files).forEach(handleFile); }}
@@ -121,23 +136,19 @@ export default function CapTraderImport({ onImport, onClose }) {
           onChange={(e) => Array.from(e.target.files).forEach(handleFile)}
           className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
         />
-        <Upload className="mx-auto h-8 w-8 text-slate-500 mb-2" />
-        <p className="text-slate-300 font-medium">
+        <div className="text-slate-400">
           {files.length > 0 ? `${files.length} Datei(en) ausgewählt` : 'Flex-Query XML hierher ziehen oder klicken'}
-        </p>
-        <p className="text-slate-500 text-sm mt-1">Nur .xml Dateien von CapTrader/IBKR</p>
+        </div>
+        <div className="text-xs text-slate-500 mt-1">Nur .xml Dateien von CapTrader/IBKR</div>
       </div>
 
       {/* File List */}
       {files.length > 0 && (
-        <div className="space-y-2">
+        <div className="space-y-1">
           {files.map((f, i) => (
-            <div key={i} className="flex items-center justify-between bg-slate-800/50 rounded-lg px-4 py-2">
-              <div className="flex items-center gap-2">
-                <FileText className="h-4 w-4 text-slate-400" />
-                <span className="text-sm text-slate-300">{f.name}</span>
-              </div>
-              <span className="text-xs text-slate-500">{(f.size / 1024).toFixed(1)} KB</span>
+            <div key={i} className="flex items-center justify-between text-sm bg-slate-800/50 rounded-lg px-3 py-2">
+              <span className="text-slate-300">{f.name}</span>
+              <span className="text-slate-500">{(f.size / 1024).toFixed(1)} KB</span>
             </div>
           ))}
         </div>
@@ -145,8 +156,8 @@ export default function CapTraderImport({ onImport, onClose }) {
 
       {/* Error */}
       {error && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm flex items-center gap-2">
-          <AlertTriangle className="h-4 w-4" /> {error}
+        <div className="bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg px-4 py-3 text-sm">
+          {error}
         </div>
       )}
 
@@ -154,10 +165,10 @@ export default function CapTraderImport({ onImport, onClose }) {
       {files.length > 0 && !preview && (
         <button
           onClick={parseFiles}
-          disabled={parsing}
-          className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 text-white font-medium py-3 rounded-lg transition-colors"
+          disabled={loading}
+          className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium py-2.5 rounded-lg transition-colors"
         >
-          {parsing ? 'Parse...' : 'XML Parsen & Vorschau'}
+          {loading ? 'Verarbeite...' : 'XML Parsen & Vorschau'}
         </button>
       )}
 
@@ -166,137 +177,142 @@ export default function CapTraderImport({ onImport, onClose }) {
         <div className="space-y-4">
           {/* Portfolio Summary */}
           <div className="bg-slate-800/50 rounded-xl p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-slate-200 flex items-center gap-2">
-                <CheckCircle className="h-4 w-4 text-emerald-400" /> Portfolio-Vorschau
-              </h3>
-              <span className="text-xs text-slate-500 font-mono">{preview.accountId}</span>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            <h3 className="text-sm font-semibold text-slate-200">Portfolio-Vorschau</h3>
+            <div className="text-xs text-slate-500">{preview.accountId}</div>
+
+            <div className="grid grid-cols-2 gap-3">
               <div className="bg-slate-900/50 rounded-lg p-3">
-                <div className="text-slate-500 text-xs">Depotwert</div>
-                <div className="text-emerald-400 font-mono text-lg">
+                <div className="text-xs text-slate-500">Depotwert</div>
+                <div className="text-lg font-semibold text-slate-200">
                   €{preview.metrics.totalValue.toLocaleString('de-DE', { maximumFractionDigits: 0 })}
                 </div>
               </div>
               <div className="bg-slate-900/50 rounded-lg p-3">
-                <div className="text-slate-500 text-xs">Positionen</div>
-                <div className="text-slate-200 font-mono text-lg">{preview.metrics.positionCount}</div>
+                <div className="text-xs text-slate-500">Positionen</div>
+                <div className="text-lg font-semibold text-slate-200">{preview.metrics.positionCount}</div>
               </div>
               <div className="bg-slate-900/50 rounded-lg p-3">
-                <div className="text-slate-500 text-xs">CC-fähig (≥100 Shares)</div>
-                <div className="text-purple-400 font-mono text-lg">{preview.positions.length}</div>
+                <div className="text-xs text-slate-500">CC-fähig (≥100 Shares)</div>
+                <div className="text-lg font-semibold text-slate-200">{preview.positions.length}</div>
               </div>
               <div className="bg-slate-900/50 rounded-lg p-3">
-                <div className="text-slate-500 text-xs">Unrealisiert</div>
-                <div className={`font-mono text-lg ${preview.metrics.totalUnrealized >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                <div className="text-xs text-slate-500">Unrealisiert</div>
+                <div className={`text-lg font-semibold ${preview.metrics.totalUnrealized >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                   {preview.metrics.totalUnrealized >= 0 ? '+' : ''}
                   €{preview.metrics.totalUnrealized.toLocaleString('de-DE', { maximumFractionDigits: 0 })}
                 </div>
               </div>
             </div>
-
-            {/* CC-Ready Positions */}
-            {preview.positions.length > 0 && (
-              <div className="mt-3">
-                <h4 className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">CC-Positionen</h4>
-                <div className="space-y-1 max-h-48 overflow-y-auto">
-                  {preview.positions.map(pos => (
-                    <div key={pos.symbol} className="flex items-center justify-between bg-slate-900/30 rounded px-3 py-2 text-sm">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-semibold text-slate-200">{pos.symbol}</span>
-                        <span className="text-xs text-slate-500">{pos.shares} Shares</span>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-slate-300">€{pos.marketPrice.toFixed(2)}</div>
-                        <div className="text-xs text-slate-500">Ø €{pos.avgCost.toFixed(2)}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
+
+          {/* CC-Ready Positions */}
+          {preview.positions.length > 0 && (
+            <div className="bg-slate-800/50 rounded-xl p-4 space-y-3">
+              <h4 className="text-sm font-semibold text-slate-200">CC-Positionen</h4>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {preview.positions.map(pos => (
+                  <div key={pos.symbol} className="flex items-center justify-between text-sm bg-slate-900/50 rounded-lg px-3 py-2">
+                    <div>
+                      <span className="font-medium text-slate-200">{pos.symbol}</span>
+                      <span className="text-slate-500 ml-2">{pos.shares} Shares</span>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-slate-300">€{pos.marketPrice.toFixed(2)}</div>
+                      <div className="text-xs text-slate-500">Ø €{pos.avgCost.toFixed(2)}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Tax Preview */}
           {preview.taxReports && preview.years.length > 0 && (
             <div className="bg-slate-800/50 rounded-xl p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-slate-200">📊 Steuer-Vorschau</h3>
-                <div className="flex gap-1">
-                  {preview.years.map(year => (
-                    <button
-                      key={year}
-                      onClick={() => setTaxPreview(preview.taxReports[year])}
-                      className={`text-xs px-2 py-1 rounded transition-colors ${
-                        taxPreview?.year === year ? 'bg-emerald-600 text-white' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
-                      }`}
-                    >
-                      {year}
-                    </button>
-                  ))}
-                </div>
+              <h3 className="text-sm font-semibold text-slate-200">📊 Steuer-Vorschau</h3>
+
+              {/* Year Selector */}
+              <div className="flex gap-2 flex-wrap">
+                {preview.years.map(year => (
+                  <button
+                    key={year}
+                    onClick={() => setSelectedYear(year)}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                      selectedYear === year
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                    }`}
+                  >
+                    {year}
+                  </button>
+                ))}
               </div>
 
               {taxPreview && (
-                <div className="space-y-2">
-                  <div className="grid grid-cols-3 gap-2 text-xs">
-                    <div className="bg-slate-900/50 rounded p-2">
-                      <div className="text-slate-500">Kapitalerträge</div>
-                      <div className="font-mono text-emerald-400">€{taxPreview.summary.stockPnL.toFixed(2)}</div>
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-slate-900/50 rounded-lg p-3">
+                      <div className="text-xs text-slate-500">Kapitalerträge</div>
+                      <div className="text-sm font-semibold text-slate-200">
+                        €{(taxPreview.summary?.stockPnL_EUR || 0).toFixed(2)}
+                      </div>
                     </div>
-                    <div className="bg-slate-900/50 rounded p-2">
-                      <div className="text-slate-500">Optionsprämien</div>
-                      <div className="font-mono text-amber-400">€{taxPreview.summary.optionsPnL.toFixed(2)}</div>
+                    <div className="bg-slate-900/50 rounded-lg p-3">
+                      <div className="text-xs text-slate-500">Optionsprämien</div>
+                      <div className="text-sm font-semibold text-slate-200">
+                        €{(taxPreview.summary?.optionsPnL_EUR || 0).toFixed(2)}
+                      </div>
                     </div>
-                    <div className="bg-slate-900/50 rounded p-2">
-                      <div className="text-slate-500">Dividenden</div>
-                      <div className="font-mono text-blue-400">€{taxPreview.summary.dividendIncome.toFixed(2)}</div>
+                    <div className="bg-slate-900/50 rounded-lg p-3">
+                      <div className="text-xs text-slate-500">Dividenden</div>
+                      <div className="text-sm font-semibold text-slate-200">
+                        €{(taxPreview.summary?.dividendIncome_EUR || 0).toFixed(2)}
+                      </div>
                     </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="bg-slate-900/50 rounded p-2">
-                      <div className="text-slate-500">Gesamtsteuer</div>
-                      <div className="font-mono text-rose-400">€{taxPreview.tax.totalTax.toFixed(2)}</div>
+                    <div className="bg-slate-900/50 rounded-lg p-3">
+                      <div className="text-xs text-slate-500">Gesamtsteuer</div>
+                      <div className="text-sm font-semibold text-red-400">
+                        €{(taxPreview.tax?.totalTax || 0).toFixed(2)}
+                      </div>
                     </div>
-                    <div className="bg-slate-900/50 rounded p-2">
-                      <div className="text-slate-500">Netto</div>
-                      <div className="font-mono text-emerald-400">€{taxPreview.tax.netGain.toFixed(2)}</div>
+                    <div className="bg-slate-900/50 rounded-lg p-3 col-span-2">
+                      <div className="text-xs text-slate-500">Netto</div>
+                      <div className="text-lg font-semibold text-emerald-400">
+                        €{(taxPreview.tax?.netGain || 0).toFixed(2)}
+                      </div>
                     </div>
                   </div>
 
                   {/* Tagesgenaue Aufstellung Toggle */}
                   <button
                     onClick={() => setShowTaxDetails(!showTaxDetails)}
-                    className="w-full text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 py-2 rounded transition-colors"
+                    className="w-full text-sm text-slate-400 hover:text-slate-200 py-2 border-t border-slate-700/50"
                   >
-                    {showTaxDetails ? '▼' : '▶'} Tagesgenaue Aufstellung ({taxPreview.dailyReport?.length} Tage)
+                    {showTaxDetails ? '▼' : '▶'} Tagesgenaue Aufstellung
                   </button>
 
-                  {showTaxDetails && taxPreview.dailyReport && (
-                    <div className="max-h-64 overflow-y-auto space-y-1">
-                      {taxPreview.dailyReport.map(day => (
-                        <div key={day.date} className="bg-slate-900/30 rounded p-2 text-xs">
-                          <div className="flex items-center justify-between font-medium text-slate-300">
-                            <span>{day.dateFormatted}</span>
-                            <span className={day.totalDay >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                  {showTaxDetails && dailyReport.length > 0 && (
+                    <div className="space-y-2 max-h-64 overflow-y-auto">
+                      {dailyReport.map((day, idx) => (
+                        <div key={idx} className="bg-slate-900/50 rounded-lg p-3 text-sm">
+                          <div className="flex justify-between items-center mb-1">
+                            <span className="font-medium text-slate-300">{day.dateFormatted}</span>
+                            <span className={`font-semibold ${day.totalDay >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                               €{day.totalDay.toFixed(2)}
                             </span>
                           </div>
                           {day.stockTrades.length > 0 && (
-                            <div className="text-slate-500 mt-1">
+                            <div className="text-xs text-slate-500">
                               {day.stockTrades.length} Aktienverkäufe: €{day.stockPnL.toFixed(2)}
                             </div>
                           )}
                           {day.optionTrades.length > 0 && (
-                            <div className="text-slate-500">
-                              {day.optionTrades.length} Optionen: €{day.optionPremium.toFixed(2)}
+                            <div className="text-xs text-slate-500">
+                              {day.optionTrades.length} Optionen: €{day.optionsPnL.toFixed(2)}
                             </div>
                           )}
                           {day.dividends.length > 0 && (
-                            <div className="text-slate-500">
+                            <div className="text-xs text-slate-500">
                               {day.dividends.length} Dividenden: €{day.dividendIncome.toFixed(2)}
                             </div>
                           )}
@@ -306,16 +322,16 @@ export default function CapTraderImport({ onImport, onClose }) {
                   )}
 
                   {/* Export Buttons */}
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 pt-2">
                     <button
-                      onClick={downloadTaxCSV}
-                      className="flex-1 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs py-2 rounded transition-colors"
+                      onClick={handleExportCSV}
+                      className="flex-1 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-medium py-2 rounded-lg transition-colors"
                     >
                       📄 CSV Export
                     </button>
                     <button
-                      onClick={downloadTaxJSON}
-                      className="flex-1 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs py-2 rounded transition-colors"
+                      onClick={handleExportJSON}
+                      className="flex-1 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-medium py-2 rounded-lg transition-colors"
                     >
                       📋 JSON Export
                     </button>
@@ -326,18 +342,18 @@ export default function CapTraderImport({ onImport, onClose }) {
           )}
 
           {/* Actions */}
-          <div className="flex gap-3">
+          <div className="flex gap-3 pt-2">
             <button
-              onClick={confirmImport}
-              className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-3 rounded-lg transition-colors"
+              onClick={handleImport}
+              className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2.5 rounded-lg transition-colors"
             >
-              ✅ Importieren & Speichern
+              ✅ In Portfolio übernehmen
             </button>
             <button
-              onClick={() => { setFiles([]); setPreview(null); setTaxPreview(null); }}
-              className="px-4 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition-colors"
+              onClick={onClose}
+              className="px-6 bg-slate-700 hover:bg-slate-600 text-slate-200 font-medium py-2.5 rounded-lg transition-colors"
             >
-              Zurück
+              Abbrechen
             </button>
           </div>
         </div>
