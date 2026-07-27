@@ -1,7 +1,15 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { parseMultipleFlexQueries, extractUnderlyings } from '../services/capTraderParser';
 import { savePortfolioData, getCCScreenerInput, calculatePortfolioMetrics } from '../services/portfolioBridge';
-import { generateAnnualReport, exportTaxCSV, exportTaxJSON } from '../services/taxReportService';
+import { 
+  generateAnnualReport, 
+  exportTaxCSV, 
+  exportTaxJSON, 
+  exportTaxReportHTML,
+  loadAllYearData,
+  isYearLocked,
+  clearAllYearData,
+} from '../services/taxReportService';
 
 export default function CapTraderImport({ onImport, onClose }) {
   const [files, setFiles] = useState([]);
@@ -10,6 +18,19 @@ export default function CapTraderImport({ onImport, onClose }) {
   const [loading, setLoading] = useState(false);
   const [selectedYear, setSelectedYear] = useState(null);
   const [showTaxDetails, setShowTaxDetails] = useState(false);
+  const [savedYears, setSavedYears] = useState([]);
+  const [showReport, setShowReport] = useState(false);
+  const [taxpayerInfo, setTaxpayerInfo] = useState(() => {
+    const saved = localStorage.getItem('mt_taxpayer_info');
+    return saved ? JSON.parse(saved) : { name: '', taxId: '', churchTax: 'none', isJoint: false, spouseName: '' };
+  });
+
+  // Load saved years on mount
+  useEffect(() => {
+    const allData = loadAllYearData();
+    const years = Object.keys(allData).map(Number).sort((a, b) => b - a);
+    setSavedYears(years);
+  }, []);
 
   const handleFile = useCallback((file) => {
     if (!file.name.endsWith('.xml')) {
@@ -24,16 +45,12 @@ export default function CapTraderImport({ onImport, onClose }) {
     setLoading(true);
     setError(null);
     try {
-      const texts = await Promise.all(
-        files.map(f => f.text())
-      );
+      const texts = await Promise.all(files.map(f => f.text()));
       const parsedData = parseMultipleFlexQueries(texts);
 
-      // Portfolio-Metriken
       const metrics = calculatePortfolioMetrics(parsedData);
       const ccPositions = getCCScreenerInput(parsedData);
 
-      // Steuerberichte für alle Jahre
       const years = [...new Set([
         ...(parsedData.allTrades?.map(t => new Date(t.tradeDate).getFullYear()) || []),
         ...(parsedData.allDividends?.map(d => new Date(d.date).getFullYear()) || [])
@@ -41,8 +58,16 @@ export default function CapTraderImport({ onImport, onClose }) {
 
       const taxReports = {};
       years.forEach(year => {
-        taxReports[year] = generateAnnualReport(parsedData, year);
+        taxReports[year] = generateAnnualReport(parsedData, year, {
+          churchTaxKey: taxpayerInfo.churchTax,
+          isJointAccount: taxpayerInfo.isJoint,
+        });
       });
+
+      // Refresh saved years
+      const allData = loadAllYearData();
+      const allYears = Object.keys(allData).map(Number).sort((a, b) => b - a);
+      setSavedYears(allYears);
 
       const previewData = {
         accountId: parsedData.accountInformation?.[0]?.accountId || 'Unbekannt',
@@ -65,7 +90,7 @@ export default function CapTraderImport({ onImport, onClose }) {
     } finally {
       setLoading(false);
     }
-  }, [files]);
+  }, [files, taxpayerInfo]);
 
   const handleImport = useCallback(() => {
     if (!preview) return;
@@ -78,31 +103,61 @@ export default function CapTraderImport({ onImport, onClose }) {
     if (!preview?.taxReports || !selectedYear) return;
     const report = preview.taxReports[selectedYear];
     const csv = exportTaxCSV(report);
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Steuer_${selectedYear}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(csv, `Steuer_${selectedYear}.csv`, 'text/csv;charset=utf-8;');
   }, [preview, selectedYear]);
 
   const handleExportJSON = useCallback(() => {
     if (!preview?.taxReports || !selectedYear) return;
     const report = preview.taxReports[selectedYear];
     const json = exportTaxJSON(report);
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Steuer_${selectedYear}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(json, `Steuer_${selectedYear}.json`, 'application/json');
   }, [preview, selectedYear]);
 
-  const taxPreview = selectedYear && preview?.taxReports ? preview.taxReports[selectedYear] : null;
+  const handleExportHTML = useCallback(() => {
+    if (!preview?.taxReports || !selectedYear) return;
+    const report = preview.taxReports[selectedYear];
+    const html = exportTaxReportHTML(report, {
+      taxpayerName: taxpayerInfo.name,
+      taxId: taxpayerInfo.taxId,
+      churchTaxKey: taxpayerInfo.churchTax,
+      isJointAccount: taxpayerInfo.isJoint,
+      spouseName: taxpayerInfo.spouseName,
+    });
+    downloadBlob(html, `Steuerbericht_${selectedYear}.html`, 'text/html;charset=utf-8');
+  }, [preview, selectedYear, taxpayerInfo]);
 
-  // Hilfsfunktion: dailyBreakdown in dailyReport-Format umwandeln
+  const handlePrintReport = useCallback(() => {
+    if (!preview?.taxReports || !selectedYear) return;
+    const report = preview.taxReports[selectedYear];
+    const html = exportTaxReportHTML(report, {
+      taxpayerName: taxpayerInfo.name,
+      taxId: taxpayerInfo.taxId,
+      churchTaxKey: taxpayerInfo.churchTax,
+      isJointAccount: taxpayerInfo.isJoint,
+      spouseName: taxpayerInfo.spouseName,
+    });
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => printWindow.print(), 500);
+  }, [preview, selectedYear, taxpayerInfo]);
+
+  const handleSaveTaxpayerInfo = useCallback(() => {
+    localStorage.setItem('mt_taxpayer_info', JSON.stringify(taxpayerInfo));
+  }, [taxpayerInfo]);
+
+  const handleClearAllData = useCallback(() => {
+    if (confirm('⚠️ Alle gespeicherten Steuerdaten löschen? Dies kann nicht rückgängig gemacht werden.')) {
+      clearAllYearData();
+      setSavedYears([]);
+      setPreview(null);
+    }
+  }, []);
+
+  const taxPreview = selectedYear && preview?.taxReports ? preview.taxReports[selectedYear] : null;
+  const currentYear = new Date().getFullYear();
+
   const getDailyReport = (report) => {
     if (!report?.dailyBreakdown) return [];
     return report.dailyBreakdown.map(day => ({
@@ -120,7 +175,107 @@ export default function CapTraderImport({ onImport, onClose }) {
   const dailyReport = taxPreview ? getDailyReport(taxPreview) : [];
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 max-h-[80vh] overflow-y-auto pr-2">
+      {/* Taxpayer Info */}
+      <div className="bg-slate-800/50 rounded-xl p-4 space-y-3">
+        <h3 className="text-sm font-semibold text-slate-200">📝 Steuerpflichtiger</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <input
+            type="text"
+            placeholder="Name"
+            value={taxpayerInfo.name}
+            onChange={e => setTaxpayerInfo(p => ({ ...p, name: e.target.value }))}
+            className="bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+          />
+          <input
+            type="text"
+            placeholder="Steuer-ID"
+            value={taxpayerInfo.taxId}
+            onChange={e => setTaxpayerInfo(p => ({ ...p, taxId: e.target.value }))}
+            className="bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+          />
+          <select
+            value={taxpayerInfo.churchTax}
+            onChange={e => setTaxpayerInfo(p => ({ ...p, churchTax: e.target.value }))}
+            className="bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
+          >
+            <option value="none">Keine Kirchensteuer</option>
+            <option value="bw_bayern">Kirchensteuer 8% (BW/Bayern)</option>
+            <option value="other">Kirchensteuer 9% (andere BL)</option>
+          </select>
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="isJoint"
+              checked={taxpayerInfo.isJoint}
+              onChange={e => setTaxpayerInfo(p => ({ ...p, isJoint: e.target.checked }))}
+              className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-emerald-600"
+            />
+            <label htmlFor="isJoint" className="text-sm text-slate-300">Gemeinschaftskonto</label>
+          </div>
+          {taxpayerInfo.isJoint && (
+            <input
+              type="text"
+              placeholder="Ehegatte Name"
+              value={taxpayerInfo.spouseName}
+              onChange={e => setTaxpayerInfo(p => ({ ...p, spouseName: e.target.value }))}
+              className="bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+            />
+          )}
+        </div>
+        <button
+          onClick={handleSaveTaxpayerInfo}
+          className="text-xs text-emerald-400 hover:text-emerald-300"
+        >
+          💾 Steuerpflichtiger speichern
+        </button>
+      </div>
+
+      {/* Saved Years Overview */}
+      {savedYears.length > 0 && (
+        <div className="bg-slate-800/50 rounded-xl p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-200">📁 Gespeicherte Steuerjahre</h3>
+            <button
+              onClick={handleClearAllData}
+              className="text-xs text-red-400 hover:text-red-300"
+            >
+              🗑️ Alle löschen
+            </button>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            {savedYears.map(year => {
+              const isLocked = isYearLocked(year);
+              const data = loadAllYearData()[year];
+              return (
+                <div
+                  key={year}
+                  className={`px-3 py-2 rounded-lg text-sm ${
+                    isLocked 
+                      ? 'bg-slate-700/50 text-slate-400 border border-slate-600' 
+                      : 'bg-amber-900/30 text-amber-300 border border-amber-700/50'
+                  }`}
+                >
+                  <div className="font-semibold">{year}</div>
+                  <div className="text-xs opacity-70">
+                    {isLocked ? '🔒 Abgeschlossen' : '📝 Aktuell'}
+                  </div>
+                  {data?.summary && (
+                    <div className="text-xs mt-1">
+                      Gewinn: €{data.summary.totalRealizedPnL_EUR?.toFixed(0) || 0}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="text-xs text-slate-500">
+            🔒 Abgeschlossene Jahre werden bei neuen Imports nicht überschrieben – nur ergänzt.
+            📝 Das aktuelle Jahr wird bei jedem Import aktualisiert.
+          </div>
+        </div>
+      )}
+
       {/* Upload Zone */}
       <div
         onDrop={(e) => { e.preventDefault(); Array.from(e.dataTransfer.files).forEach(handleFile); }}
@@ -179,7 +334,6 @@ export default function CapTraderImport({ onImport, onClose }) {
           <div className="bg-slate-800/50 rounded-xl p-4 space-y-3">
             <h3 className="text-sm font-semibold text-slate-200">Portfolio-Vorschau</h3>
             <div className="text-xs text-slate-500">{preview.accountId}</div>
-
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-slate-900/50 rounded-lg p-3">
                 <div className="text-xs text-slate-500">Depotwert</div>
@@ -231,7 +385,6 @@ export default function CapTraderImport({ onImport, onClose }) {
             <div className="bg-slate-800/50 rounded-xl p-4 space-y-3">
               <h3 className="text-sm font-semibold text-slate-200">📊 Steuer-Vorschau</h3>
 
-              {/* Year Selector */}
               <div className="flex gap-2 flex-wrap">
                 {preview.years.map(year => (
                   <button
@@ -243,45 +396,92 @@ export default function CapTraderImport({ onImport, onClose }) {
                         : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
                     }`}
                   >
-                    {year}
+                    {year} {isYearLocked(year) ? '🔒' : year === currentYear ? '📝' : ''}
                   </button>
                 ))}
               </div>
 
               {taxPreview && (
                 <div className="space-y-3">
+                  {/* KAP Zeilen */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-slate-900/50 rounded-lg p-3">
-                      <div className="text-xs text-slate-500">Kapitalerträge</div>
+                      <div className="text-xs text-slate-500">Z. 7 – Dividenden</div>
                       <div className="text-sm font-semibold text-slate-200">
-                        €{(taxPreview.summary?.stockPnL_EUR || 0).toFixed(2)}
+                        €{(taxPreview.kapZeilen?.z7 || 0).toFixed(2)}
                       </div>
                     </div>
                     <div className="bg-slate-900/50 rounded-lg p-3">
-                      <div className="text-xs text-slate-500">Optionsprämien</div>
-                      <div className="text-sm font-semibold text-slate-200">
-                        €{(taxPreview.summary?.optionsPnL_EUR || 0).toFixed(2)}
+                      <div className="text-xs text-slate-500">Z. 8 – Aktiengewinne</div>
+                      <div className="text-sm font-semibold text-emerald-400">
+                        €{(taxPreview.kapZeilen?.z8 || 0).toFixed(2)}
                       </div>
                     </div>
                     <div className="bg-slate-900/50 rounded-lg p-3">
-                      <div className="text-xs text-slate-500">Dividenden</div>
-                      <div className="text-sm font-semibold text-slate-200">
-                        €{(taxPreview.summary?.dividendIncome_EUR || 0).toFixed(2)}
+                      <div className="text-xs text-slate-500">Z. 9 – Aktienverluste</div>
+                      <div className="text-sm font-semibold text-rose-400">
+                        €{(taxPreview.kapZeilen?.z9 || 0).toFixed(2)}
                       </div>
                     </div>
                     <div className="bg-slate-900/50 rounded-lg p-3">
-                      <div className="text-xs text-slate-500">Gesamtsteuer</div>
-                      <div className="text-sm font-semibold text-red-400">
-                        €{(taxPreview.tax?.totalTax || 0).toFixed(2)}
+                      <div className="text-xs text-slate-500">Z. 12 – Optionsgewinne</div>
+                      <div className="text-sm font-semibold text-emerald-400">
+                        €{(taxPreview.kapZeilen?.z12 || 0).toFixed(2)}
                       </div>
                     </div>
-                    <div className="bg-slate-900/50 rounded-lg p-3 col-span-2">
-                      <div className="text-xs text-slate-500">Netto</div>
+                    <div className="bg-slate-900/50 rounded-lg p-3">
+                      <div className="text-xs text-slate-500">Z. 13 – Optionsverluste</div>
+                      <div className="text-sm font-semibold text-rose-400">
+                        €{(taxPreview.kapZeilen?.z13 || 0).toFixed(2)}
+                      </div>
+                    </div>
+                    <div className="bg-slate-900/50 rounded-lg p-3">
+                      <div className="text-xs text-slate-500">Z. 14 – Zinsen</div>
+                      <div className="text-sm font-semibold text-slate-200">
+                        €{(taxPreview.kapZeilen?.z14 || 0).toFixed(2)}
+                      </div>
+                    </div>
+                    <div className="bg-slate-900/50 rounded-lg p-3 col-span-2 border border-emerald-500/30">
+                      <div className="text-xs text-slate-500">Z. 41 – Anrechenbare Quellensteuer</div>
                       <div className="text-lg font-semibold text-emerald-400">
-                        €{(taxPreview.tax?.netGain || 0).toFixed(2)}
+                        €{(taxPreview.kapZeilen?.z41 || 0).toFixed(2)}
                       </div>
                     </div>
                   </div>
+
+                  {/* Steuerzusammenfassung */}
+                  <div className="bg-emerald-900/20 border border-emerald-500/30 rounded-lg p-4 space-y-2">
+                    <h4 className="text-sm font-semibold text-emerald-300">💰 Steuerliche Zusammenfassung</h4>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                      <span className="text-slate-400">Gesamte Erträge:</span>
+                      <span className="text-slate-200 text-right">€{(taxPreview.tax?.totalGains || 0).toFixed(2)}</span>
+                      <span className="text-slate-400">Sparer-Pauschbetrag:</span>
+                      <span className="text-slate-200 text-right">€{(taxPreview.tax?.usedAllowance || 0).toFixed(2)} / €{taxPreview.tax?.sparerPauschbetrag || 1000}</span>
+                      <span className="text-slate-400">Steuerpflichtig:</span>
+                      <span className="text-slate-200 text-right">€{(taxPreview.tax?.taxableGains || 0).toFixed(2)}</span>
+                      <span className="text-slate-400">Abgeltungsteuer (25%):</span>
+                      <span className="text-slate-200 text-right">€{(taxPreview.tax?.abgeltungsteuer || 0).toFixed(2)}</span>
+                      <span className="text-slate-400">Soli (5,5%):</span>
+                      <span className="text-slate-200 text-right">€{(taxPreview.tax?.soli || 0).toFixed(2)}</span>
+                      <span className="text-slate-400">Kirchensteuer:</span>
+                      <span className="text-slate-200 text-right">€{(taxPreview.tax?.kirchensteuer || 0).toFixed(2)}</span>
+                      <span className="text-slate-400 font-semibold">Gesamtsteuer:</span>
+                      <span className="text-rose-400 text-right font-semibold">€{(taxPreview.tax?.totalTax || 0).toFixed(2)}</span>
+                      <span className="text-slate-400 font-semibold">Netto:</span>
+                      <span className="text-emerald-400 text-right font-semibold text-lg">€{(taxPreview.tax?.netGain || 0).toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  {/* Verlustvortrag Warnung */}
+                  {taxPreview.toepfe?.termin?.vortrag > 0 && (
+                    <div className="bg-amber-900/20 border border-amber-500/30 rounded-lg p-3 text-sm">
+                      <strong className="text-amber-400">⚠️ Verlustvortrag:</strong>{' '}
+                      <span className="text-slate-300">
+                        €{taxPreview.toepfe.termin.vortrag.toFixed(2)} Termingeschäftsverlust werden ins Folgejahr übertragen 
+                        (§20 Abs. 6 Satz 5 EStG – max. €20.000/Jahr).
+                      </span>
+                    </div>
+                  )}
 
                   {/* Tagesgenaue Aufstellung Toggle */}
                   <button
@@ -303,17 +503,17 @@ export default function CapTraderImport({ onImport, onClose }) {
                           </div>
                           {day.stockTrades.length > 0 && (
                             <div className="text-xs text-slate-500">
-                              {day.stockTrades.length} Aktienverkäufe: €{day.stockPnL.toFixed(2)}
+                              📈 Aktien: €{day.stockPnL.toFixed(2)}
                             </div>
                           )}
                           {day.optionTrades.length > 0 && (
                             <div className="text-xs text-slate-500">
-                              {day.optionTrades.length} Optionen: €{day.optionsPnL.toFixed(2)}
+                              🎯 Optionen: €{day.optionsPnL.toFixed(2)}
                             </div>
                           )}
                           {day.dividends.length > 0 && (
                             <div className="text-xs text-slate-500">
-                              {day.dividends.length} Dividenden: €{day.dividendIncome.toFixed(2)}
+                              💵 Dividenden: €{day.dividendIncome.toFixed(2)}
                             </div>
                           )}
                         </div>
@@ -322,18 +522,30 @@ export default function CapTraderImport({ onImport, onClose }) {
                   )}
 
                   {/* Export Buttons */}
-                  <div className="flex gap-2 pt-2">
+                  <div className="grid grid-cols-2 gap-2 pt-2">
                     <button
                       onClick={handleExportCSV}
-                      className="flex-1 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-medium py-2 rounded-lg transition-colors"
+                      className="bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-medium py-2 rounded-lg transition-colors"
                     >
                       📄 CSV Export
                     </button>
                     <button
                       onClick={handleExportJSON}
-                      className="flex-1 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-medium py-2 rounded-lg transition-colors"
+                      className="bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-medium py-2 rounded-lg transition-colors"
                     >
                       📋 JSON Export
+                    </button>
+                    <button
+                      onClick={handleExportHTML}
+                      className="bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-medium py-2 rounded-lg transition-colors"
+                    >
+                      🌐 HTML Export
+                    </button>
+                    <button
+                      onClick={handlePrintReport}
+                      className="bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-medium py-2 rounded-lg transition-colors"
+                    >
+                      🖨️ Drucken / PDF
                     </button>
                   </div>
                 </div>
@@ -360,4 +572,14 @@ export default function CapTraderImport({ onImport, onClose }) {
       )}
     </div>
   );
+}
+
+function downloadBlob(content, filename, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
