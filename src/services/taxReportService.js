@@ -507,3 +507,10 @@ export function exportTaxJSON(report) {
     })),
   }, null, 2);
 }
+
+/**
+ * Zusammenfassung für alle Jahre
+ */
+export function generateMultiYearReport(parsedData, years, taxOptions = {}) {
+  return years.map(year => generateAnnualReport(parsedData, year, taxOptions));
+}
