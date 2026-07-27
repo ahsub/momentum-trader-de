@@ -1,32 +1,29 @@
 /**
- * CapTrader / IBKR Flex Query XML Parser v3 – GENERISCH
+ * CapTrader / IBKR Flex Query XML Parser v3.1 – ROBUST
  * Parst ALLE in der Flex Query möglichen Cash Transactions
  * 
- * v3 Änderungen:
- * - Generische Cash Transaction Verarbeitung (alle activityCodes)
- * - Automatische Klassifizierung nach Steuerkategorien
- * - Erweiterbar für CFD, Forex, Crypto, Zertifikate ohne Parser-Änderung
- * - Mapping: activityCode → { type, taxCategory, description }
+ * v3.1 Änderungen:
+ * - Null-sichere getAttr() Funktion (kein Crash bei fehlenden Elementen)
+ * - Optionale Sections (AccountInformation, CashReport, etc.)
+ * - Graceful degradation bei unvollständigen XML-Daten
  */
 
 function getAttr(el, name, fallback = '') {
-  return el.getAttribute(name) ?? fallback;
+  if (!el) return fallback;
+  const val = el.getAttribute(name);
+  return val !== null && val !== undefined ? val : fallback;
 }
 
 function parseNumber(val) {
   if (!val || val === '') return 0;
-  return parseFloat(val);
+  const parsed = parseFloat(val);
+  return isNaN(parsed) ? 0 : parsed;
 }
 
 // ═══════════════════════════════════════════════════════════════
 // ACTIVITY CODE MAPPING – Erweiterbar für neue Einkunftsarten
 // ═══════════════════════════════════════════════════════════════
 
-/**
- * Mapping aller bekannten IBKR Activity Codes zu Steuerkategorien.
- * Neue Codes können einfach hier hinzugefügt werden –
- * der Parser selbst muss nicht geändert werden.
- */
 const ACTIVITY_CODE_MAP = {
   // === DIVIDENDEN ===
   DIV:  { type: 'dividend',     taxCategory: 'KAP_Z7',   description: 'Dividende' },
@@ -71,9 +68,6 @@ const ACTIVITY_CODE_MAP = {
   _DEFAULT: { type: 'unknown',  taxCategory: 'NONE',     description: 'Unbekannt' },
 };
 
-/**
- * Gibt die Klassifizierung für einen Activity Code zurück
- */
 function classifyActivityCode(code) {
   if (!code) return ACTIVITY_CODE_MAP._DEFAULT;
   return ACTIVITY_CODE_MAP[code] || { 
@@ -83,9 +77,6 @@ function classifyActivityCode(code) {
   };
 }
 
-/**
- * Asset Category Mapping für Steuerklassifizierung
- */
 const ASSET_CATEGORY_MAP = {
   STK:  { name: 'Aktien',         taxCategory: 'KAP_Z8' },
   OPT:  { name: 'Optionen',       taxCategory: 'KAP_Z12' },
@@ -101,7 +92,7 @@ const ASSET_CATEGORY_MAP = {
 };
 
 // ═══════════════════════════════════════════════════════════════
-// HAUPT-PARSER
+// HAUPT-PARSER (ROBUST)
 // ═══════════════════════════════════════════════════════════════
 
 export function parseFlexStatement(xmlString) {
@@ -120,12 +111,13 @@ export function parseFlexStatement(xmlString) {
   const fromDate = getAttr(stmt, 'fromDate');
   const toDate = getAttr(stmt, 'toDate');
 
-  // === ACCOUNT INFORMATION ===
+  // === ACCOUNT INFORMATION (optional) ===
+  const accountInfoEl = stmt.querySelector('AccountInformation');
   const accountInfo = {
     accountId,
-    accountName: getAttr(stmt.querySelector('AccountInformation'), 'name'),
-    accountType: getAttr(stmt.querySelector('AccountInformation'), 'accountType'),
-    currency: getAttr(stmt.querySelector('AccountInformation'), 'currency'),
+    accountName: getAttr(accountInfoEl, 'name'),
+    accountType: getAttr(accountInfoEl, 'accountType'),
+    currency: getAttr(accountInfoEl, 'currency'),
     fromDate,
     toDate,
     generated: getAttr(stmt, 'whenGenerated'),
@@ -157,7 +149,6 @@ export function parseFlexStatement(xmlString) {
       listingExchange: getAttr(el, 'listingExchange'),
       openDateTime: getAttr(el, 'openDateTime'),
       percentOfNAV: parseNumber(getAttr(el, 'percentOfNAV')),
-      // Derivative-Details
       strike: parseNumber(getAttr(el, 'strike')) || null,
       expiry: getAttr(el, 'expiry') || null,
       putCall: getAttr(el, 'putCall') || null,
@@ -198,20 +189,17 @@ export function parseFlexStatement(xmlString) {
       exchange: getAttr(el, 'exchange'),
       openCloseIndicator: getAttr(el, 'openCloseIndicator'),
       notes: getAttr(el, 'notes'),
-      // Derivative-Details
       strike: parseNumber(getAttr(el, 'strike')) || null,
       expiry: getAttr(el, 'expiry') || null,
       putCall: getAttr(el, 'putCall') || null,
       multiplier: parseNumber(getAttr(el, 'multiplier')) || 1,
       underlyingSymbol: getAttr(el, 'underlyingSymbol') || null,
-      // P&L
       realizedPnl: parseNumber(getAttr(el, 'fifoPnlRealized')),
       mtmPnl: parseNumber(getAttr(el, 'mtmPnl')),
     });
   }
 
-  // === STATEMENT OF FUNDS – GENERISCH ===
-  // Parst ALLE Zeilen unabhängig vom activityCode
+  // === STATEMENT OF FUNDS – GENERISCH (ROBUST) ===
   const funds = [];
   const fundEls = stmt.querySelectorAll('StatementOfFundsLine');
   for (const el of fundEls) {
@@ -225,31 +213,22 @@ export function parseFlexStatement(xmlString) {
     const currency = getAttr(el, 'currency');
 
     funds.push({
-      // Identifikation
       accountId: getAttr(el, 'accountId'),
       transactionId: getAttr(el, 'transactionID'),
       actionId: getAttr(el, 'actionID'),
-
-      // Klassifizierung
       activityCode,
       activityDescription: getAttr(el, 'activityDescription'),
       type: classification.type,
       taxCategory: classification.taxCategory,
-
-      // Wertpapiere
       symbol: getAttr(el, 'symbol'),
       isin: getAttr(el, 'isin'),
       assetCategory: getAttr(el, 'assetCategory'),
       subCategory: getAttr(el, 'subCategory'),
       description: getAttr(el, 'description'),
-
-      // Beträge
       amount,
       amountEUR: fxRate && fxRate !== 0 ? amount / fxRate : amount,
       currency,
       fxRateToBase: fxRate,
-
-      // Details
       debit: parseNumber(getAttr(el, 'debit')),
       credit: parseNumber(getAttr(el, 'credit')),
       balance: parseNumber(getAttr(el, 'balance')),
@@ -257,18 +236,12 @@ export function parseFlexStatement(xmlString) {
       tradeGross: parseNumber(getAttr(el, 'tradeGross')),
       commission: parseNumber(getAttr(el, 'tradeCommission')),
       tax: parseNumber(getAttr(el, 'tradeTax')),
-
-      // Daten
       date: getAttr(el, 'date'),
       reportDate: getAttr(el, 'reportDate'),
       settleDate: getAttr(el, 'settleDate'),
-
-      // Trade-Referenz
       tradeId: getAttr(el, 'tradeID'),
       buySell: getAttr(el, 'buySell'),
       quantity: parseNumber(getAttr(el, 'tradeQuantity')),
-
-      // Derivative
       strike: parseNumber(getAttr(el, 'strike')) || null,
       expiry: getAttr(el, 'expiry') || null,
       putCall: getAttr(el, 'putCall') || null,
@@ -276,11 +249,12 @@ export function parseFlexStatement(xmlString) {
     });
   }
 
-  // === CASH REPORT ===
+  // === CASH REPORT (optional) ===
   const cashReport = {};
   const cashEls = stmt.querySelectorAll('CashReportCurrency');
   for (const el of cashEls) {
     const currency = getAttr(el, 'currency');
+    if (!currency) continue;
     cashReport[currency] = {
       startingCash: parseNumber(getAttr(el, 'startingCash')),
       endingCash: parseNumber(getAttr(el, 'endingCash')),
@@ -298,7 +272,6 @@ export function parseFlexStatement(xmlString) {
   }
 
   // === GENERISCHE CASH TRANSACTIONS ===
-  // Alle Funds-Zeilen als normalisierte Cash Transactions
   const cashTransactions = funds.map(f => ({
     id: f.transactionId || f.actionId || `${f.symbol}_${f.date}_${f.activityCode}`,
     type: f.type,
@@ -318,7 +291,6 @@ export function parseFlexStatement(xmlString) {
   const dividends = funds
     .filter(f => f.type === 'dividend')
     .map(div => {
-      // Suche passende WHT für gleiches Symbol+Datum
       const matchingWht = funds.find(wht => 
         wht.type === 'withholding' &&
         wht.symbol === div.symbol && 
@@ -352,7 +324,7 @@ export function parseFlexStatement(xmlString) {
       description: i.description || i.activityDescription,
     }));
 
-  // === STEUERRELEVANTE KATEGORIEN (automatisch gruppiert) ===
+  // === STEUERRELEVANTE KATEGORIEN ===
   const taxCategories = {
     KAP_Z7:  funds.filter(f => f.taxCategory === 'KAP_Z7').reduce((s, f) => s + f.amountEUR, 0),
     KAP_Z8:  funds.filter(f => f.taxCategory === 'KAP_Z8').reduce((s, f) => s + f.amountEUR, 0),
@@ -364,7 +336,7 @@ export function parseFlexStatement(xmlString) {
     ANLAGE_SO: funds.filter(f => f.taxCategory === 'ANLAGE_SO').reduce((s, f) => s + f.amountEUR, 0),
   };
 
-  // === UNBEKANNTE CODES (für Debugging/Erweiterung) ===
+  // === UNBEKANNTE CODES ===
   const unknownCodes = [...new Set(
     funds.filter(f => f.type === 'unknown').map(f => f.activityCode)
   )];
@@ -381,7 +353,7 @@ export function parseFlexStatement(xmlString) {
     trades,
     funds,
     cashReport,
-    cashReports: [cashReport],
+    cashReports: Object.keys(cashReport).length > 0 ? [cashReport] : [],
     cashTransactions,
     dividends,
     interest,
@@ -436,7 +408,7 @@ export function parseMultipleFlexQueries(xmlStrings) {
     openPositions: results[results.length - 1].openPositions,
     allTrades: results.flatMap(r => r.trades),
     allFunds: allFunds,
-    cashReports: results.map(r => r.cashReport),
+    cashReports: results.map(r => r.cashReport).filter(cr => Object.keys(cr).length > 0),
     cashTransactions: allFunds.map(f => ({
       id: f.transactionId || f.actionId || `${f.symbol}_${f.date}_${f.activityCode}`,
       type: f.type,
@@ -514,17 +486,10 @@ export function calculatePositionsWithCostBasis(parsedData) {
 // ERWEITERUNGSHILFE
 // ═══════════════════════════════════════════════════════════════
 
-/**
- * Gibt alle unbekannten Activity Codes zurück –
- * nützlich um den ACTIVITY_CODE_MAP zu erweitern.
- */
 export function getUnknownActivityCodes(parsedData) {
   return parsedData.unknownCodes || [];
 }
 
-/**
- * Gibt eine Zusammenfassung aller Activity Codes in den Daten zurück.
- */
 export function getActivityCodeSummary(parsedData) {
   const summary = {};
   parsedData.allFunds?.forEach(f => {
