@@ -1,366 +1,376 @@
-import React, { useState, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, FileText, Euro, Calendar, AlertTriangle, CheckCircle, TrendingUp, TrendingDown, Activity, Users, Church, User, Printer } from 'lucide-react';
-import { parseTaxCSV, mergeTaxCSVs, getYearlyOverview, TAX_CATEGORIES } from '../services/taxParser';
-import { calculateGermanTax, getRefundDeadline, CHURCH_TAX_RATES } from '../services/taxRules';
-import { printTaxReport } from '../services/taxExport';
+import React, { useState, useEffect, useCallback } from 'react';
+import { loadPortfolioData } from '../services/portfolioBridge';
+import { generateAnnualReport, generateMultiYearReport, exportTaxCSV, calculateGermanTaxes } from '../services/taxReportService';
+
+const CHURCH_TAX_RATES = {
+  none: { label: 'Keine', rate: 0 },
+  bw_bayern: { label: 'Baden-Württemberg / Bayern (8%)', rate: 0.08 },
+  other: { label: 'Andere Bundesländer (9%)', rate: 0.09 },
+};
 
 export default function TaxAnalysis() {
-  const [files, setFiles] = useState([]);
-  const [results, setResults] = useState([]);
-  const [merged, setMerged] = useState(null);
-  const [yearly, setYearly] = useState(null);
-  const [activeYear, setActiveYear] = useState(null);
-
-  // Steuer-Einstellungen
-  const [isJointAccount, setIsJointAccount] = useState(false);
+  const [portfolioData, setPortfolioData] = useState(null);
+  const [reports, setReports] = useState({});
+  const [activeYear, setActiveYear] = useState(2024);
   const [churchTaxKey, setChurchTaxKey] = useState('none');
-  const [personAChurch, setPersonAChurch] = useState(false);
-  const [personBChurch, setPersonBChurch] = useState(false);
+  const [isJointAccount, setIsJointAccount] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const handleFile = useCallback((file) => {
-    if (!file || !file.name.endsWith('.csv')) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const parsed = parseTaxCSV(e.target.result, file.name);
-      setResults(prev => [...prev, parsed]);
-      setFiles(prev => [...prev, file.name]);
-    };
-    reader.readAsText(file);
+  useEffect(() => {
+    const data = loadPortfolioData();
+    if (data) {
+      setPortfolioData(data);
+      // Generate reports for all available years
+      const years = [2023, 2024];
+      const multiYear = generateMultiYearReport(data, years, { churchTaxKey, isJointAccount });
+      const reportMap = {};
+      multiYear.forEach(r => { reportMap[r.year] = r; });
+      setReports(reportMap);
+    }
+    setLoading(false);
   }, []);
 
-  const analyzeAll = () => {
-    const mergedResult = mergeTaxCSVs(results);
-    setMerged(mergedResult);
-    const years = getYearlyOverview(mergedResult.transactions);
-    setYearly(years);
-    const latestYear = Object.keys(years).sort().pop();
-    setActiveYear(latestYear);
-  };
+  useEffect(() => {
+    if (!portfolioData) return;
+    const years = [2023, 2024];
+    const multiYear = generateMultiYearReport(portfolioData, years, { churchTaxKey, isJointAccount });
+    const reportMap = {};
+    multiYear.forEach(r => { reportMap[r.year] = r; });
+    setReports(reportMap);
+  }, [churchTaxKey, isJointAccount, portfolioData]);
 
-  const currentYearData = activeYear && yearly ? yearly[activeYear] : null;
+  const downloadCSV = useCallback((year) => {
+    const report = reports[year];
+    if (!report) return;
+    const csv = exportTaxCSV(report);
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Steuerreport_${year}_tagesgenau.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }, [reports]);
 
-  const taxCalc = currentYearData ? calculateGermanTax({
-    capitalIncome: currentYearData.summary.capitalGains + currentYearData.summary.investmentIncome,
-    isJointAccount,
-    churchTaxKey,
-    personAChurch,
-    personBChurch,
-  }) : null;
+  const downloadAllCSV = useCallback(() => {
+    let allCSV = '\uFEFF';
+    Object.values(reports).forEach(report => {
+      allCSV += `=== JAHR ${report.year} ===\n`;
+      allCSV += exportTaxCSV(report);
+      allCSV += '\n\n';
+    });
+    const blob = new Blob([allCSV], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Steuerreport_alle_Jahre_tagesgenau.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }, [reports]);
 
-  const catColors = {
-    [TAX_CATEGORIES.DIVIDEND]: 'text-emerald-400',
-    [TAX_CATEGORIES.INTEREST]: 'text-blue-400',
-    [TAX_CATEGORIES.CAP_GAIN]: 'text-emerald-400',
-    [TAX_CATEGORIES.CAP_LOSS]: 'text-rose-400',
-    [TAX_CATEGORIES.OPTION_PREMIUM]: 'text-amber-400',
-    [TAX_CATEGORIES.TAX_WITHHELD]: 'text-rose-400',
-    [TAX_CATEGORIES.TAX_REFUND]: 'text-emerald-400',
-    [TAX_CATEGORIES.FEE]: 'text-slate-400',
-  };
+  if (loading) {
+    return <div className="text-slate-400 text-center py-12">Lade Steuerdaten...</div>;
+  }
+
+  if (!portfolioData) {
+    return (
+      <div className="bg-slate-800/50 rounded-xl p-8 text-center">
+        <div className="text-4xl mb-3">📊</div>
+        <h3 className="text-lg font-semibold text-slate-200 mb-2">Kein Portfolio importiert</h3>
+        <p className="text-slate-400 text-sm">
+          Importiere zuerst deine CapTrader Flex-Query XML unter "Portfolio" → "CapTrader Import"
+        </p>
+      </div>
+    );
+  }
+
+  const activeReport = reports[activeYear];
+  if (!activeReport) {
+    return <div className="text-slate-400 text-center py-12">Keine Daten für {activeYear}</div>;
+  }
+
+  const { tax, summary, dailyBreakdown, fifoDetails, optionsDetails, dividends } = activeReport;
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-bold text-slate-100">Steueranalyse</h2>
-        <p className="text-sm text-slate-500">CapTrader Kontoauszüge (CSV) — Kapitalerträge & Quellensteuer</p>
-      </div>
-
-      {/* Steuer-Einstellungen */}
-      <div className="rounded-xl bg-slate-800/30 border border-slate-700 p-4 space-y-4">
-        <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
-          <Users className="h-4 w-4 text-slate-400" /> Kontoinhaber & Steuerpflicht
-        </h3>
-
-        {/* Einzel- / Gemeinschaftskonto */}
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-slate-500">Konto:</span>
-          <button
-            onClick={() => setIsJointAccount(false)}
-            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md transition-colors ${
-              !isJointAccount ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-            }`}
-          >
-            <User className="h-3 w-3" /> Einzelkonto
-          </button>
-          <button
-            onClick={() => setIsJointAccount(true)}
-            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md transition-colors ${
-              isJointAccount ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-            }`}
-          >
-            <Users className="h-3 w-3" /> Gemeinschaftskonto
-          </button>
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-slate-100">Steuerreport Kapitalerträge</h2>
+          <p className="text-sm text-slate-400">Tagesgenaue Aufstellung aller realisierten Erträge in EUR</p>
         </div>
-
-        {/* Kirchensteuer */}
-        <div className="flex items-center gap-3 flex-wrap">
-          <span className="text-xs text-slate-500">Kirchensteuer:</span>
-          {Object.entries(CHURCH_TAX_RATES).map(([key, { label }]) => (
+        <div className="flex gap-2">
+          {[2023, 2024].map(year => (
             <button
-              key={key}
-              onClick={() => setChurchTaxKey(key)}
-              className={`text-xs px-2 py-1 rounded-md transition-colors ${
-                churchTaxKey === key ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+              key={year}
+              onClick={() => setActiveYear(year)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                activeYear === year
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-slate-800 text-slate-400 hover:text-slate-200'
               }`}
             >
-              {label}
+              {year}
             </button>
           ))}
         </div>
+      </div>
 
-        {/* Kirchensteuerpflicht pro Person */}
-        {churchTaxKey !== 'none' && (
-          <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={personAChurch}
-                onChange={(e) => setPersonAChurch(e.target.checked)}
-                className="rounded border-slate-600 bg-slate-800 text-emerald-500 focus:ring-emerald-500"
-              />
-              <Church className="h-3 w-3 text-slate-400" />
-              Person A kirchensteuerpflichtig
-            </label>
-            {isJointAccount && (
-              <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={personBChurch}
-                  onChange={(e) => setPersonBChurch(e.target.checked)}
-                  className="rounded border-slate-600 bg-slate-800 text-emerald-500 focus:ring-emerald-500"
-                />
-                <Church className="h-3 w-3 text-slate-400" />
-                Person B kirchensteuerpflichtig
-              </label>
-            )}
+      {/* Tax Settings */}
+      <div className="bg-slate-800/50 rounded-xl p-4 space-y-4">
+        <h3 className="font-semibold text-slate-200">Steuerliche Einstellungen</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-sm text-slate-400 mb-1">Kirchensteuer</label>
+            <select
+              value={churchTaxKey}
+              onChange={(e) => setChurchTaxKey(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200"
+            >
+              {Object.entries(CHURCH_TAX_RATES).map(([key, { label }]) => (
+                <option key={key} value={key}>{label}</option>
+              ))}
+            </select>
           </div>
-        )}
-
-        {/* Hinweis */}
-        <p className="text-[10px] text-slate-500">
-          {isJointAccount 
-            ? `Sparer-Pauschbetrag: €2.000 (€1.000 pro Person) | Aufteilung 50/50`
-            : `Sparer-Pauschbetrag: €1.000`}
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              id="joint"
+              checked={isJointAccount}
+              onChange={(e) => setIsJointAccount(e.target.checked)}
+              className="rounded border-slate-600 bg-slate-800 text-emerald-500 w-4 h-4"
+            />
+            <label htmlFor="joint" className="text-sm text-slate-300">
+              Gemeinschaftskonto (€2.000 Sparer-Pauschbetrag)
+            </label>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => downloadCSV(activeYear)}
+              className="flex-1 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm px-3 py-2 rounded-lg transition-colors"
+            >
+              📥 CSV {activeYear}
+            </button>
+            <button
+              onClick={downloadAllCSV}
+              className="flex-1 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm px-3 py-2 rounded-lg transition-colors"
+            >
+              📥 Alle Jahre
+            </button>
+          </div>
+        </div>
+        <p className="text-xs text-slate-500">
+          Sparer-Pauschbetrag: €{isJointAccount ? '2.000' : '1.000'} 
           {churchTaxKey !== 'none' && ` | Kirchensteuer: ${CHURCH_TAX_RATES[churchTaxKey].label}`}
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div
-          onDrop={(e) => { e.preventDefault(); Array.from(e.dataTransfer.files).forEach(handleFile); }}
-          onDragOver={(e) => e.preventDefault()}
-          className="rounded-xl border-2 border-dashed border-slate-700 bg-slate-900/30 p-6 text-center hover:border-slate-600 transition-colors"
-        >
-          <input type="file" accept=".csv" multiple onChange={(e) => Array.from(e.target.files).forEach(handleFile)}
-            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-          <Upload className="mx-auto h-8 w-8 text-slate-500 mb-2" />
-          <p className="text-sm text-slate-300">CSV-Kontoauszüge hierher ziehen</p>
-          <p className="text-xs text-slate-500 mt-1">Mehrere Dateien möglich</p>
-        </div>
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <TaxCard
+          label="Realisiert Gesamt"
+          value={`€${summary.totalRealizedPnL_EUR.toFixed(2)}`}
+          positive={summary.totalRealizedPnL_EUR >= 0}
+        />
+        <TaxCard
+          label="Aktien P&L"
+          value={`€${summary.stockPnL_EUR.toFixed(2)}`}
+          positive={summary.stockPnL_EUR >= 0}
+        />
+        <TaxCard
+          label="Optionen P&L"
+          value={`€${summary.optionsPnL_EUR.toFixed(2)}`}
+          positive={summary.optionsPnL_EUR >= 0}
+        />
+        <TaxCard
+          label="Dividenden"
+          value={`€${summary.dividendIncome_EUR.toFixed(2)}`}
+          positive={true}
+        />
+      </div>
 
-        <div className="rounded-xl border border-slate-700 bg-slate-800/30 p-4">
-          <h3 className="text-sm font-semibold text-slate-200 mb-2 flex items-center gap-2">
-            <FileText className="h-4 w-4 text-slate-400" /> Geladene Dateien
-          </h3>
-          {files.length === 0 ? (
-            <p className="text-xs text-slate-500">Noch keine Dateien</p>
-          ) : (
-            <ul className="space-y-1">
-              {files.map((f, i) => (
-                <li key={i} className="text-xs text-slate-400 flex items-center gap-2">
-                  <CheckCircle className="h-3 w-3 text-emerald-400" /> {f}
-                </li>
-              ))}
-            </ul>
+      {/* Tax Calculation */}
+      <div className="bg-slate-800/50 rounded-xl p-4">
+        <h3 className="font-semibold text-slate-200 mb-3">Steuerberechnung</h3>
+        <div className="space-y-2 text-sm">
+          <TaxRow label="Steuerpflichtige Erträge" value={tax.remainingTaxable} />
+          <TaxRow label="Sparer-Pauschbetrag (genutzt)" value={tax.usedAllowance} color="text-emerald-400" />
+          <div className="border-t border-slate-700 my-2" />
+          <TaxRow label="Abgeltungsteuer (25%)" value={-tax.abgeltungsteuer} />
+          <TaxRow label="Solidaritätszuschlag (5,5%)" value={-tax.soli} />
+          {tax.kirchensteuer > 0 && (
+            <TaxRow label={`Kirchensteuer (${(CHURCH_TAX_RATES[churchTaxKey].rate * 100).toFixed(0)}%)`} value={-tax.kirchensteuer} />
           )}
-          {files.length > 0 && (
-            <>
-            <button onClick={analyzeAll}
-              className="mt-3 w-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold py-2 rounded-md transition-colors">
-              Analyse starten
-            </button>
-            {merged && activeYear && (
-              <button
-                onClick={() => printTaxReport(
-                  currentYearData?.transactions || [],
-                  currentYearData?.summary || merged.summary,
-                  { isJointAccount, churchTaxKey, personAChurch, personBChurch },
-                  activeYear
-                )}
-                className="mt-2 w-full bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold py-2 rounded-md transition-colors flex items-center justify-center gap-2">
-                <Printer className="h-3 w-3" /> Steuererläuterung drucken (PDF)
-              </button>
-            )}
-            </>
-          )}
+          <div className="border-t border-slate-700 my-2" />
+          <TaxRow label="Gesamtsteuer" value={-tax.totalTax} bold />
+          <TaxRow label="Netto nach Steuern" value={tax.netGain} bold positive={tax.netGain >= 0} />
+          <div className="text-xs text-slate-500 mt-2">
+            Effektiver Steuersatz: {tax.effectiveTaxRate.toFixed(2)}%
+          </div>
         </div>
       </div>
 
-      <AnimatePresence>
-        {merged && (
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+      {/* Daily Breakdown */}
+      <div className="bg-slate-800/50 rounded-xl p-4">
+        <h3 className="font-semibold text-slate-200 mb-3">
+          Tagesgenaue Aufstellung ({dailyBreakdown.length} Tage)
+        </h3>
+        <div className="overflow-x-auto max-h-96">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 bg-slate-800">
+              <tr className="text-slate-500 border-b border-slate-700">
+                <th className="text-left py-2 px-3">Datum</th>
+                <th className="text-right py-2 px-3">Aktien</th>
+                <th className="text-right py-2 px-3">Optionen</th>
+                <th className="text-right py-2 px-3">Dividenden</th>
+                <th className="text-right py-2 px-3">Gesamt</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dailyBreakdown.map((day, i) => (
+                <tr key={i} className="border-b border-slate-800/50 hover:bg-slate-800/30">
+                  <td className="py-2 px-3 font-mono text-slate-300">{day.date}</td>
+                  <td className={`py-2 px-3 text-right ${day.stockPnL !== 0 ? (day.stockPnL > 0 ? 'text-emerald-400' : 'text-red-400') : 'text-slate-500'}`}>
+                    {day.stockPnL !== 0 ? (day.stockPnL > 0 ? '+' : '') + day.stockPnL.toFixed(2) : '—'}
+                  </td>
+                  <td className={`py-2 px-3 text-right ${day.optionsPnL !== 0 ? (day.optionsPnL > 0 ? 'text-emerald-400' : 'text-red-400') : 'text-slate-500'}`}>
+                    {day.optionsPnL !== 0 ? (day.optionsPnL > 0 ? '+' : '') + day.optionsPnL.toFixed(2) : '—'}
+                  </td>
+                  <td className={`py-2 px-3 text-right ${day.dividends !== 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
+                    {day.dividends !== 0 ? '+' + day.dividends.toFixed(2) : '—'}
+                  </td>
+                  <td className={`py-2 px-3 text-right font-semibold ${day.total >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {day.total >= 0 ? '+' : ''}{day.total.toFixed(2)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
-            {yearly && Object.keys(yearly).length > 1 && (
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-500">Jahr:</span>
-                {Object.keys(yearly).sort().map(year => (
-                  <button key={year} onClick={() => setActiveYear(year)}
-                    className={`text-xs px-2 py-1 rounded-md transition-colors ${
-                      activeYear === year ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-                    }`}>
-                    {year}
-                  </button>
+      {/* FIFO Details */}
+      {fifoDetails.realizedTrades.length > 0 && (
+        <div className="bg-slate-800/50 rounded-xl p-4">
+          <h3 className="font-semibold text-slate-200 mb-3">FIFO Details – Aktienverkäufe</h3>
+          <div className="overflow-x-auto max-h-64">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-slate-800">
+                <tr className="text-slate-500 border-b border-slate-700">
+                  <th className="text-left py-2 px-3">Datum</th>
+                  <th className="text-left py-2 px-3">Symbol</th>
+                  <th className="text-right py-2 px-3">Menge</th>
+                  <th className="text-right py-2 px-3">Verkauf €</th>
+                  <th className="text-right py-2 px-3">Kosten €</th>
+                  <th className="text-right py-2 px-3">Realisiert €</th>
+                  <th className="text-right py-2 px-3">Haltedauer</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fifoDetails.realizedTrades.map((t, i) => (
+                  <tr key={i} className="border-b border-slate-800/50 hover:bg-slate-800/30">
+                    <td className="py-2 px-3 font-mono text-slate-300">{t.sellDate}</td>
+                    <td className="py-2 px-3 font-semibold text-slate-200">{t.symbol}</td>
+                    <td className="py-2 px-3 text-right text-slate-300">{t.quantity}</td>
+                    <td className="py-2 px-3 text-right text-slate-300">{t.proceedsEUR.toFixed(2)}</td>
+                    <td className="py-2 px-3 text-right text-slate-400">{t.totalCostEUR.toFixed(2)}</td>
+                    <td className={`py-2 px-3 text-right font-semibold ${t.realizedPnlEUR >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {t.realizedPnlEUR >= 0 ? '+' : ''}{t.realizedPnlEUR.toFixed(2)}
+                    </td>
+                    <td className="py-2 px-3 text-right text-slate-500">{t.holdingPeriodDays} Tage</td>
+                  </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Options Details */}
+      {optionsDetails.positions.length > 0 && (
+        <div className="bg-slate-800/50 rounded-xl p-4">
+          <h3 className="font-semibold text-slate-200 mb-3">Options-Details</h3>
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {optionsDetails.positions.map((pos, i) => (
+              <div key={i} className="bg-slate-900/50 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-mono font-semibold text-slate-200">
+                    {pos.underlying} {pos.putCall} {pos.strike} {pos.expiry}
+                  </span>
+                  <span className={`text-sm font-medium ${pos.netPremiumEUR >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {pos.netPremiumEUR >= 0 ? '+' : ''}€{pos.netPremiumEUR.toFixed(2)}
+                  </span>
+                </div>
+                <div className="text-xs text-slate-500 space-y-1">
+                  {pos.tradeDetails.map((td, j) => (
+                    <div key={j} className="flex justify-between">
+                      <span>{td.date} – {td.buySell} {td.quantity} @ {td.price.toFixed(2)}</span>
+                      <span className={td.premiumEUR >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                        {td.premiumEUR >= 0 ? '+' : ''}€{td.premiumEUR.toFixed(2)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
-            )}
+            ))}
+          </div>
+        </div>
+      )}
 
-            {currentYearData && (
-              <>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <div className="rounded-lg bg-slate-800/50 border border-slate-700 p-3">
-                    <p className="text-xs text-slate-500">Kapitalerträge</p>
-                    <p className={`text-lg font-bold ${currentYearData.summary.capitalGains >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      €{currentYearData.summary.capitalGains.toFixed(2)}
-                    </p>
-                  </div>
-                  <div className="rounded-lg bg-slate-800/50 border border-slate-700 p-3">
-                    <p className="text-xs text-slate-500">Dividenden/Zinsen</p>
-                    <p className="text-lg font-bold text-blue-400">€{currentYearData.summary.investmentIncome.toFixed(2)}</p>
-                  </div>
-                  <div className="rounded-lg bg-slate-800/50 border border-slate-700 p-3">
-                    <p className="text-xs text-slate-500">Einbeh. Steuer</p>
-                    <p className="text-lg font-bold text-rose-400">€{currentYearData.summary.totalTaxWithheld.toFixed(2)}</p>
-                  </div>
-                  <div className="rounded-lg bg-slate-800/50 border border-slate-700 p-3">
-                    <p className="text-xs text-slate-500">Gebühren</p>
-                    <p className="text-lg font-bold text-slate-300">€{currentYearData.summary.totalFees.toFixed(2)}</p>
-                  </div>
-                </div>
+      {/* Dividends */}
+      {dividends.length > 0 && (
+        <div className="bg-slate-800/50 rounded-xl p-4">
+          <h3 className="font-semibold text-slate-200 mb-3">Dividenden</h3>
+          <div className="overflow-x-auto max-h-48">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-slate-800">
+                <tr className="text-slate-500 border-b border-slate-700">
+                  <th className="text-left py-2 px-3">Datum</th>
+                  <th className="text-left py-2 px-3">Symbol</th>
+                  <th className="text-right py-2 px-3">Betrag €</th>
+                  <th className="text-right py-2 px-3">Original</th>
+                  <th className="text-right py-2 px-3">FX-Rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dividends.map((d, i) => (
+                  <tr key={i} className="border-b border-slate-800/50">
+                    <td className="py-2 px-3 font-mono text-slate-300">{d.date}</td>
+                    <td className="py-2 px-3 font-semibold text-slate-200">{d.symbol}</td>
+                    <td className="py-2 px-3 text-right text-emerald-400">€{d.amountEUR.toFixed(2)}</td>
+                    <td className="py-2 px-3 text-right text-slate-400">{d.amountOriginal.toFixed(2)} {d.currency}</td>
+                    <td className="py-2 px-3 text-right text-slate-500">{d.fxRate.toFixed(4)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
-                {/* Dt. Steuerberechnung */}
-                {taxCalc && (
-                  <div className="rounded-xl bg-slate-800/30 border border-slate-700 p-4">
-                    <h3 className="text-sm font-semibold text-slate-200 mb-3 flex items-center gap-2">
-                      <Euro className="h-4 w-4 text-emerald-400" />
-                      Deutsche Steuerberechnung ({activeYear})
-                      {isJointAccount && <span className="text-xs text-slate-500 font-normal">— Gemeinschaftskonto</span>}
-                    </h3>
+function TaxCard({ label, value, positive }) {
+  return (
+    <div className="bg-slate-900/50 rounded-lg p-3">
+      <div className="text-xs text-slate-500 mb-1">{label}</div>
+      <div className={`text-lg font-mono font-semibold ${positive === undefined ? 'text-slate-200' : positive ? 'text-emerald-400' : 'text-red-400'}`}>
+        {value}
+      </div>
+    </div>
+  );
+}
 
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                      <div><p className="text-slate-500 text-xs">Kapitalerträge</p><p className="font-semibold text-slate-200">€{taxCalc.capitalIncome.toFixed(2)}</p></div>
-                      <div><p className="text-slate-500 text-xs">Sparer-Pauschbetrag</p><p className="font-semibold text-emerald-400">€{taxCalc.freibetrag.toFixed(2)}</p></div>
-                      <div><p className="text-slate-500 text-xs">Steuerpflichtig</p><p className="font-semibold text-amber-400">€{taxCalc.taxable.toFixed(2)}</p></div>
-                      <div><p className="text-slate-500 text-xs">Abgeltungsteuer (25%)</p><p className="font-semibold text-slate-300">€{taxCalc.abgeltungsteuer.toFixed(2)}</p></div>
-                    </div>
-
-                    <div className="mt-3 grid grid-cols-2 md:grid-cols-3 gap-3 text-sm border-t border-slate-700 pt-3">
-                      <div><p className="text-slate-500 text-xs">Soli (5,5%)</p><p className="font-semibold text-slate-300">€{taxCalc.soli.toFixed(2)}</p></div>
-                      <div><p className="text-slate-500 text-xs">Kirchensteuer</p><p className="font-semibold text-slate-300">€{taxCalc.kirchensteuer.toFixed(2)}</p></div>
-                      <div><p className="text-slate-500 text-xs">Gesamtsteuer</p><p className="font-semibold text-rose-400">€{taxCalc.totalTax.toFixed(2)}</p></div>
-                    </div>
-
-                    <p className="text-xs text-slate-500 mt-2">
-                      Effektiver Steuersatz: <span className="font-semibold text-slate-300">{taxCalc.effectiveRate.toFixed(2)}%</span>
-                      {taxCalc.churchTaxNote && <span className="ml-2 text-slate-400">| {taxCalc.churchTaxNote}</span>}
-                    </p>
-
-                    {taxCalc.perPerson && (
-                      <div className="mt-3 p-2 bg-slate-900/30 rounded-lg text-xs">
-                        <p className="text-slate-500 mb-1">Pro Person (50/50 Aufteilung):</p>
-                        <div className="grid grid-cols-3 gap-2">
-                          <span>Anteil: €{taxCalc.perPerson.share.toFixed(2)}</span>
-                          <span>Steuerpflichtig: €{taxCalc.perPerson.taxableShare.toFixed(2)}</span>
-                          <span>Steuer: €{taxCalc.perPerson.taxShare.toFixed(2)}</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                
-                {/* ⚠️ Nicht-deutscher Broker Hinweis */}
-                <div className="mt-4 rounded-lg bg-amber-500/10 border border-amber-500/20 p-4">
-                  <div className="flex items-start gap-3">
-                    <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
-                    <div>
-                      <p className="text-sm font-medium text-amber-400">Nicht-deutscher Broker (CapTrader/IBKR/Lynx)</p>
-                      <p className="text-xs text-amber-300/80 mt-1">
-                        Bei nicht-deutschen Brokern wird <strong>keine deutsche Kapitalertragsteuer einbehalten</strong>. 
-                        Der Sparer-Pauschbetrag (€1.000/€2.000) wird <strong>nicht automatisch angewendet</strong>.
-                      </p>
-                      <p className="text-xs text-amber-300/80 mt-1">
-                        <strong>Was Sie tun müssen:</strong>
-                      </p>
-                      <ul className="text-xs text-amber-300/70 mt-1 ml-4 list-disc">
-                        <li>Die berechnete Steuer von <strong>€{taxCalc.totalTax.toFixed(2)}</strong> ist in der Einkommensteuererklärung <strong>nachzuzahlen</strong></li>
-                        <li>Die einbehaltene Quellensteuer (€{currentYearData.summary.totalTaxWithheld.toFixed(2)}) wird <strong>angerechnet</strong></li>
-                        <li>Den Sparer-Pauschbetrag (€{taxCalc.freibetrag.toFixed(2)}) müssen Sie <strong>selbst geltend machen</strong> (Anlage KAP)</li>
-                        <li>Quellensteuer-Erstattungen müssen <strong>separat beantragt</strong> werden (nicht über ELSTER)</li>
-                      </ul>
-                      <p className="text-xs text-amber-300/60 mt-2">
-                        <strong>Hinweis:</strong> Diese Berechnung dient der Orientierung. Die tatsächliche Steuerfestsetzung erfolgt durch das Finanzamt.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-{/* Kategorie-Übersicht */}
-                <div className="rounded-xl bg-slate-800/30 border border-slate-700 overflow-hidden">
-                  <div className="px-4 py-3 border-b border-slate-700">
-                    <h3 className="text-sm font-semibold text-slate-200">Kategorien ({activeYear})</h3>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-800/50 text-slate-400">
-                        <tr><th className="px-4 py-2">Kategorie</th><th className="px-4 py-2">Anzahl</th><th className="px-4 py-2">Betrag (EUR)</th></tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-800">
-                        {Object.entries(currentYearData.summary.byCategory)
-                          .filter(([_, data]) => data.count > 0)
-                          .sort((a, b) => Math.abs(b[1].eurTotal) - Math.abs(a[1].eurTotal))
-                          .map(([cat, data]) => (
-                            <tr key={cat} className="hover:bg-slate-800/30">
-                              <td className={`px-4 py-2 font-medium ${catColors[cat] || 'text-slate-300'}`}>{cat}</td>
-                              <td className="px-4 py-2 text-slate-400">{data.count}</td>
-                              <td className={`px-4 py-2 font-medium ${data.eurTotal >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                €{data.eurTotal.toFixed(2)}
-                              </td>
-                            </tr>
-                          ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* Fristen-Warnung */}
-                {activeYear && (
-                  <div className={`rounded-lg p-4 flex items-start gap-3 ${
-                    getRefundDeadline(activeYear).isExpired ? 'bg-rose-500/10 border border-rose-500/20' :
-                    getRefundDeadline(activeYear).isUrgent ? 'bg-amber-500/10 border border-amber-500/20' :
-                    'bg-emerald-500/10 border border-emerald-500/20'
-                  }`}>
-                    <Calendar className={`h-5 w-5 shrink-0 mt-0.5 ${
-                      getRefundDeadline(activeYear).isExpired ? 'text-rose-400' :
-                      getRefundDeadline(activeYear).isUrgent ? 'text-amber-400' : 'text-emerald-400'
-                    }`} />
-                    <div>
-                      <p className="text-sm font-medium text-slate-200">
-                        Erstattungsfrist für {activeYear}: {getRefundDeadline(activeYear).deadline}
-                      </p>
-                      <p className="text-xs text-slate-500 mt-1">
-                        {getRefundDeadline(activeYear).isExpired 
-                          ? 'Frist abgelaufen — Erstatung nicht mehr moglich'
-                          : `Noch ${getRefundDeadline(activeYear).daysLeft} Tage`}
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
+function TaxRow({ label, value, bold, positive, color }) {
+  const cls = bold ? 'font-semibold' : '';
+  const valCls = color || (positive !== undefined ? (positive ? 'text-emerald-400' : 'text-red-400') : value >= 0 ? 'text-emerald-400' : 'text-red-400');
+  return (
+    <div className={`flex justify-between ${cls}`}>
+      <span className="text-slate-400">{label}</span>
+      <span className={valCls}>
+        {value >= 0 ? '+' : ''}€{Math.abs(value).toFixed(2)}
+      </span>
     </div>
   );
 }
