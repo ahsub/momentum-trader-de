@@ -11,10 +11,13 @@ import {
 import { getMarketMeta } from '../services/koAggregatorBridge';
 import StrategyTrafficLight from '../components/StrategyTrafficLight';
 import { screenCspCandidates } from '../services/cspScreener';
+import { screenCcCandidates } from '../services/ccScreener';
 import { getCachedUiq } from '../services/uiqBridge';
+import OptionsWatchlistPanel from '../components/OptionsWatchlistPanel';
 
 const STRATEGIES = [
   { key: 'csp', label: 'CSP', color: 'emerald' },
+  { key: 'cc', label: 'CC', color: 'blue' },
   { key: 'leap', label: 'LEAP', color: 'emerald' },
   { key: 'pmcc', label: 'PMCC', color: 'blue' },
   { key: 'zebra', label: 'ZEBRA', color: 'violet' },
@@ -64,7 +67,7 @@ export default function OptionsScanner() {
     checkUiq();
   }, []);
 
-  // ── FIX: Ergebnisse leeren beim Strategie-Wechsel ──
+  // ── Ergebnisse leeren beim Strategie-Wechsel ──
   useEffect(() => {
     setResults([]);
     setSelected(null);
@@ -78,6 +81,7 @@ export default function OptionsScanner() {
 
     const screenerMap = {
       csp: () => screenCspCandidates(uiq),
+      cc: () => screenCcCandidates([], uiq),
       leap: screenLeapCandidates,
       pmcc: screenPmccCandidates,
       zebra: screenZebraCandidates,
@@ -115,7 +119,7 @@ export default function OptionsScanner() {
         <div>
           <h2 className="text-2xl font-bold text-white">Options Scanner</h2>
           <div className="flex flex-wrap items-center gap-2 mt-2">
-            <span className="text-sm text-slate-400">v2.5.1 — UIQ-Regime + CSP</span>
+            <span className="text-sm text-slate-400">v2.6.0 — Watchlist + CC</span>
             {meta.schema && (
               <span className="px-2 py-0.5 rounded-full text-xs bg-slate-800 text-slate-300">
                 Schema {meta.schema?.version || JSON.stringify(meta.schema)}
@@ -167,6 +171,16 @@ export default function OptionsScanner() {
         onSelect={setActiveStrategy}
       />
 
+      {/* KI-Watchlist Panel */}
+      <OptionsWatchlistPanel 
+        strategy={activeStrategy === 'all' ? 'all' : activeStrategy} 
+        onSelect={(item) => {
+          // Finde den vollen Ticker in den Ergebnissen oder lade ihn
+          const ticker = results.find(r => r.symbol === item.symbol);
+          if (ticker) setSelected(ticker);
+        }}
+      />
+
       {/* Strategy Tabs */}
       <div className="flex gap-2 overflow-x-auto pb-2">
         {STRATEGIES.map(s => (
@@ -211,6 +225,14 @@ export default function OptionsScanner() {
                   <th className="text-left px-4 py-2 text-xs font-medium text-slate-400">Premium</th>
                   <th className="text-left px-4 py-2 text-xs font-medium text-slate-400">ITM Prob</th>
                   <th className="text-left px-4 py-2 text-xs font-medium text-slate-400">Ann. Ret</th>
+                </>
+              )}
+              {activeStrategy === 'cc' && (
+                <>
+                  <th className="text-left px-4 py-2 text-xs font-medium text-slate-400">Call Strike</th>
+                  <th className="text-left px-4 py-2 text-xs font-medium text-slate-400">Premium</th>
+                  <th className="text-left px-4 py-2 text-xs font-medium text-slate-400">Ann. Ret</th>
+                  <th className="text-left px-4 py-2 text-xs font-medium text-slate-400">Upside Cap</th>
                 </>
               )}
               {activeStrategy === 'pmcc' && (
@@ -264,6 +286,14 @@ export default function OptionsScanner() {
                     <td className="px-4 py-2">${fmt(r.otmPremium)}</td>
                     <td className="px-4 py-2">{r.itmProbability}%</td>
                     <td className="px-4 py-2">{r.annualizedReturn}%</td>
+                  </>
+                )}
+                {activeStrategy === 'cc' && (
+                  <>
+                    <td className="px-4 py-2">${fmt(r.callStrike)}</td>
+                    <td className="px-4 py-2">${fmt(r.premium)}</td>
+                    <td className="px-4 py-2">{r.annualizedReturn}%</td>
+                    <td className="px-4 py-2">{r.upsideCap}%</td>
                   </>
                 )}
                 {activeStrategy === 'pmcc' && (
@@ -345,6 +375,18 @@ export default function OptionsScanner() {
                 <Metric label="B/E" value={`$${fmt(selected.be)}`} />
                 <Metric label="DTE" value={selected.dte} />
                 <Metric label="Margin" value={`$${fmt(selected.marginRequired)}`} />
+              </div>
+            )}
+            {activeStrategy === 'cc' && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <Metric label="Call Strike" value={`$${fmt(selected.callStrike)}`} />
+                <Metric label="Premium" value={`$${fmt(selected.premium)}`} />
+                <Metric label="Annualized Return" value={`${selected.annualizedReturn}%`} />
+                <Metric label="Total Return" value={`${selected.totalReturn}%`} />
+                <Metric label="Upside Cap" value={`${selected.upsideCap}%`} />
+                <Metric label="Cost Basis" value={`$${fmt(selected.costBasis)}`} />
+                <Metric label="B/E" value={`$${fmt(selected.be)}`} />
+                <Metric label="DTE" value={selected.dte} />
               </div>
             )}
             {activeStrategy === 'pmcc' && selected.validation && (
