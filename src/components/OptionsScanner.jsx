@@ -16,6 +16,7 @@ import { getCachedUiq } from '../services/uiqBridge';
 import OptionsWatchlistPanel from '../components/OptionsWatchlistPanel';
 import { loadPortfolioData, getCCScreenerInput, calculatePortfolioMetrics } from '../services/portfolioBridge';
 import CapTraderImport from './CapTraderImport';
+import LiquidityPanel, { LiquidityBadge } from './LiquidityPanel';
 
 const STRATEGIES = [
   { key: 'csp', label: 'CSP', color: 'emerald' },
@@ -137,7 +138,7 @@ export default function OptionsScanner() {
         <div>
           <h2 className="text-2xl font-bold text-white">Options Scanner</h2>
           <div className="flex flex-wrap items-center gap-2 mt-2">
-            <span className="text-sm text-slate-400">v2.8.0 — CapTrader + Tax</span>
+            <span className="text-sm text-slate-400">v2.8.1 — Liquidity</span>
             {meta.schema && (
               <span className="px-2 py-0.5 rounded-full text-xs bg-slate-800 text-slate-300">
                 Schema {meta.schema?.version || JSON.stringify(meta.schema)}
@@ -410,6 +411,7 @@ export default function OptionsScanner() {
                   <th className="text-left px-4 py-2 text-xs font-medium text-slate-400">IV ATM</th>
                   <th className="text-left px-4 py-2 text-xs font-medium text-slate-400">HVP</th>
                   <th className="text-left px-4 py-2 text-xs font-medium text-slate-400">Regime</th>
+                  <th className="text-left px-4 py-2 text-xs font-medium text-slate-400">Liq</th>
                   {activeStrategy === 'csp' && (
                     <>
                       <th className="text-left px-4 py-2 text-xs font-medium text-slate-400">OTM Strike</th>
@@ -441,7 +443,7 @@ export default function OptionsScanner() {
               <tbody>
                 {results.length === 0 && !loading && (
                   <tr>
-                    <td colSpan="14" className="px-4 py-8 text-center text-slate-500">
+                    <td colSpan="15" className="px-4 py-8 text-center text-slate-500">
                       No results yet. Click <strong>Run Scan</strong> to fetch candidates.
                     </td>
                   </tr>
@@ -471,6 +473,7 @@ export default function OptionsScanner() {
                     <td className="px-4 py-2">{r.ivAtm ? fmt(r.ivAtm) : '—'}</td>
                     <td className="px-4 py-2">{r.hvp ? Math.round(r.hvp) + '%' : '—'}</td>
                     <td className="px-4 py-2">{r.regime}</td>
+                    <td className="px-4 py-2"><LiquidityBadge symbol={r.symbol} /></td>
                     {activeStrategy === 'csp' && (
                       <>
                         <td className="px-4 py-2">${fmt(r.otmStrike)}</td>
@@ -643,6 +646,16 @@ export default function OptionsScanner() {
                   <Metric label="DTE" value={selected.dte} />
                 </div>
               )}
+
+              {/* Liquidity Metrics */}
+              <div className="pt-4 border-t border-slate-700/50">
+                <LiquidityPanel 
+                  symbol={selected.symbol}
+                  strike={selected.otmStrike || selected.callStrike || selected.leapStrike || selected.shortStrike || selected.atmStrike}
+                  expiry={selected.expiration}
+                  putCall={activeStrategy === 'csp' || activeStrategy === 'putDiagonal' ? 'PUT' : 'CALL'}
+                />
+              </div>
             </div>
           )}
         </>
