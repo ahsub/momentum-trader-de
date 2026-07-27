@@ -1,217 +1,347 @@
 import React, { useState, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, CheckCircle, AlertTriangle, TrendingUp, TrendingDown, Activity } from 'lucide-react';
-import { parseCapTraderXML, filterOptionTrades, calculateTradeMetrics } from '../services/capTraderParser';
-import { usePortfolioStore } from '../stores/portfolioStore';
-import { useTradeJournalStore } from '../stores/tradeJournalStore';
+import { Upload, FileText, CheckCircle, AlertTriangle, X } from 'lucide-react';
+import { parseMultipleFlexQueries, extractUnderlyings } from '../services/capTraderParser';
+import { savePortfolioData, getCCScreenerInput, calculatePortfolioMetrics } from '../services/portfolioBridge';
+import { generateAnnualReport, exportTaxCSV, exportTaxJSON } from '../services/taxReportService';
 
-export default function CapTraderImport() {
-  const [dragActive, setDragActive] = useState(false);
-  const [result, setResult] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [imported, setImported] = useState(false);
+export default function CapTraderImport({ onImport, onClose }) {
+  const [files, setFiles] = useState([]);
+  const [parsing, setParsing] = useState(false);
+  const [error, setError] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [taxPreview, setTaxPreview] = useState(null);
+  const [showTaxDetails, setShowTaxDetails] = useState(false);
 
-  const addLivePosition = usePortfolioStore(s => s.addLivePosition);
-  const addEntry = useTradeJournalStore(s => s.addEntry);
-
-  const handleFile = useCallback((file) => {
-    if (!file || !file.name.endsWith('.xml')) {
-      setResult({ success: false, error: 'Bitte eine .xml Datei hochladen' });
+  const handleFile = useCallback(async (file) => {
+    if (!file.name.endsWith('.xml')) {
+      setError('Nur .xml Dateien von CapTrader/IBKR Flex Query');
       return;
     }
-    setLoading(true);
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      setResult(parseCapTraderXML(e.target.result));
-      setLoading(false);
-    };
-    reader.readAsText(file);
+
+    try {
+      const text = await file.text();
+      setFiles(prev => [...prev, { name: file.name, content: text, size: file.size }]);
+      setError(null);
+    } catch (err) {
+      setError('Fehler beim Lesen: ' + err.message);
+    }
   }, []);
 
-  const handleDrop = useCallback((e) => {
-    e.preventDefault();
-    setDragActive(false);
-    if (e.dataTransfer.files?.[0]) handleFile(e.dataTransfer.files[0]);
-  }, [handleFile]);
+  const parseFiles = useCallback(() => {
+    if (files.length === 0) return;
+    setParsing(true);
+    setError(null);
 
-  const importPositions = () => {
-    if (!result?.openPositions) return;
-    result.openPositions.forEach(pos => addLivePosition(pos));
-    setImported(true);
-  };
+    try {
+      const xmlStrings = files.map(f => f.content);
+      const parsed = parseMultipleFlexQueries(xmlStrings);
+      
+      const positions = getCCScreenerInput(parsed);
+      const metrics = calculatePortfolioMetrics(parsed);
+      const underlyings = extractUnderlyings(parsed);
 
-  const importTrades = () => {
-    if (!result?.trades) return;
-    filterOptionTrades(result.trades).forEach(trade => {
-      addEntry({
-        symbol: trade.symbol,
-        strategy: trade.optionType === 'CALL' ? 'Long Call' : trade.optionType === 'PUT' ? 'Short Put' : 'Option',
-        entryPrice: trade.entryPrice,
-        quantity: Math.abs(trade.quantity),
-        pnl: trade.pnl,
-        date: trade.tradeDate,
-        notes: `CapTrader Import | ${trade.side}`,
-        status: trade.side === 'SELL' && trade.pnl !== 0 ? 'closed' : 'open',
+      // Tax preview for available years
+      const years = [...new Set(parsed.allTrades?.map(t => new Date(t.tradeDate).getFullYear()) || [])].sort();
+      const taxReports = {};
+      years.forEach(year => {
+        taxReports[year] = generateAnnualReport(parsed, year);
       });
+
+      setPreview({
+        positions,
+        metrics,
+        underlyings,
+        fileCount: files.length,
+        accountId: parsed.meta[0]?.accountId,
+        dateRange: `${parsed.meta[0]?.fromDate} – ${parsed.meta[parsed.meta.length - 1]?.toDate}`,
+        taxReports,
+        years,
+      });
+      
+      setTaxPreview(taxReports[years[years.length - 1]]);
+    } catch (err) {
+      setError('Parse-Fehler: ' + err.message);
+    } finally {
+      setParsing(false);
+    }
+  }, [files]);
+
+  const confirmImport = useCallback(() => {
+    if (!preview) return;
+    
+    const xmlStrings = files.map(f => f.content);
+    const parsed = parseMultipleFlexQueries(xmlStrings);
+    savePortfolioData(parsed);
+    
+    onImport?.({
+      portfolio: parsed,
+      ccInput: getCCScreenerInput(parsed),
+      metrics: calculatePortfolioMetrics(parsed),
     });
-    setImported(true);
+    
+    onClose?.();
+  }, [files, preview, onImport, onClose]);
+
+  const downloadTaxCSV = () => {
+    if (!taxPreview) return;
+    const csv = exportTaxCSV(taxPreview);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Steuerreport_${taxPreview.year}.csv`;
+    link.click();
   };
 
-  const metrics = result?.trades ? calculateTradeMetrics(result.trades) : null;
+  const downloadTaxJSON = () => {
+    if (!taxPreview) return;
+    const json = exportTaxJSON(taxPreview);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Steuerreport_${taxPreview.year}.json`;
+    link.click();
+  };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-bold text-slate-100">CapTrader Import</h2>
-        <p className="text-sm text-slate-500">Flex-Query XML — Positionen & Trades</p>
-      </div>
-
+    <div className="space-y-6 max-h-[80vh] overflow-y-auto pr-2">
+      {/* Upload Zone */}
       <div
-        onDrop={handleDrop}
-        onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-        onDragLeave={() => setDragActive(false)}
+        onDrop={(e) => { e.preventDefault(); Array.from(e.dataTransfer.files).forEach(handleFile); }}
+        onDragOver={(e) => e.preventDefault()}
         className={`relative rounded-xl border-2 border-dashed p-8 text-center transition-colors ${
-          dragActive ? 'border-emerald-500 bg-emerald-500/5' : 'border-slate-700 bg-slate-900/30 hover:border-slate-600'
+          files.length > 0 ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-slate-700 bg-slate-900/30 hover:border-slate-600'
         }`}
       >
-        <input type="file" accept=".xml" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
-          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-        <Upload className={`mx-auto h-8 w-8 mb-3 ${dragActive ? 'text-emerald-400' : 'text-slate-500'}`} />
-        <p className="text-sm font-medium text-slate-300">Flex-Query XML hierher ziehen oder klicken</p>
-        <p className="text-xs text-slate-500 mt-1">Nur .xml Dateien von CapTrader/IBKR</p>
+        <input
+          type="file"
+          accept=".xml"
+          multiple
+          onChange={(e) => Array.from(e.target.files).forEach(handleFile)}
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+        />
+        <Upload className="mx-auto h-8 w-8 text-slate-500 mb-2" />
+        <p className="text-slate-300 font-medium">
+          {files.length > 0 ? `${files.length} Datei(en) ausgewählt` : 'Flex-Query XML hierher ziehen oder klicken'}
+        </p>
+        <p className="text-slate-500 text-sm mt-1">Nur .xml Dateien von CapTrader/IBKR</p>
       </div>
 
-      {loading && (
-        <div className="flex items-center justify-center py-8">
-          <div className="animate-spin h-6 w-6 border-2 border-emerald-500 border-t-transparent rounded-full" />
-          <span className="ml-3 text-sm text-slate-400">Parst XML...</span>
+      {/* File List */}
+      {files.length > 0 && (
+        <div className="space-y-2">
+          {files.map((f, i) => (
+            <div key={i} className="flex items-center justify-between bg-slate-800/50 rounded-lg px-4 py-2">
+              <div className="flex items-center gap-2">
+                <FileText className="h-4 w-4 text-slate-400" />
+                <span className="text-sm text-slate-300">{f.name}</span>
+              </div>
+              <span className="text-xs text-slate-500">{(f.size / 1024).toFixed(1)} KB</span>
+            </div>
+          ))}
         </div>
       )}
 
-      {result && !result.success && (
-        <div className="rounded-lg bg-rose-500/10 border border-rose-500/20 p-4 flex items-start gap-3">
-          <AlertTriangle className="h-5 w-5 text-rose-400 shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-medium text-rose-400">Fehler beim Parsen</p>
-            <p className="text-xs text-rose-300/70 mt-1">{result.error}</p>
-          </div>
+      {/* Error */}
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4" /> {error}
         </div>
       )}
 
-      <AnimatePresence>
-        {result?.success && (
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div className="rounded-lg bg-slate-800/50 border border-slate-700 p-3">
-                <p className="text-xs text-slate-500">Offene Positionen</p>
-                <p className="text-xl font-bold text-slate-100">{result.openPositions.length}</p>
+      {/* Parse Button */}
+      {files.length > 0 && !preview && (
+        <button
+          onClick={parseFiles}
+          disabled={parsing}
+          className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 text-white font-medium py-3 rounded-lg transition-colors"
+        >
+          {parsing ? 'Parse...' : 'XML Parsen & Vorschau'}
+        </button>
+      )}
+
+      {/* Preview */}
+      {preview && (
+        <div className="space-y-4">
+          {/* Portfolio Summary */}
+          <div className="bg-slate-800/50 rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-slate-200 flex items-center gap-2">
+                <CheckCircle className="h-4 w-4 text-emerald-400" /> Portfolio-Vorschau
+              </h3>
+              <span className="text-xs text-slate-500 font-mono">{preview.accountId}</span>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="bg-slate-900/50 rounded-lg p-3">
+                <div className="text-slate-500 text-xs">Depotwert</div>
+                <div className="text-emerald-400 font-mono text-lg">
+                  €{preview.metrics.totalValue.toLocaleString('de-DE', { maximumFractionDigits: 0 })}
+                </div>
               </div>
-              <div className="rounded-lg bg-slate-800/50 border border-slate-700 p-3">
-                <p className="text-xs text-slate-500">Trades</p>
-                <p className="text-xl font-bold text-slate-100">{result.trades.length}</p>
+              <div className="bg-slate-900/50 rounded-lg p-3">
+                <div className="text-slate-500 text-xs">Positionen</div>
+                <div className="text-slate-200 font-mono text-lg">{preview.metrics.positionCount}</div>
               </div>
-              <div className="rounded-lg bg-slate-800/50 border border-slate-700 p-3">
-                <p className="text-xs text-slate-500">Optionstrades</p>
-                <p className="text-xl font-bold text-emerald-400">{filterOptionTrades(result.trades).length}</p>
+              <div className="bg-slate-900/50 rounded-lg p-3">
+                <div className="text-slate-500 text-xs">CC-fähig (≥100 Shares)</div>
+                <div className="text-purple-400 font-mono text-lg">{preview.positions.length}</div>
               </div>
-              <div className="rounded-lg bg-slate-800/50 border border-slate-700 p-3">
-                <p className="text-xs text-slate-500">NAV</p>
-                <p className="text-xl font-bold text-slate-100">
-                  {result.accountSummary.nav ? `€${result.accountSummary.nav.toLocaleString('de-DE')}` : '—'}
-                </p>
+              <div className="bg-slate-900/50 rounded-lg p-3">
+                <div className="text-slate-500 text-xs">Unrealisiert</div>
+                <div className={`font-mono text-lg ${preview.metrics.totalUnrealized >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {preview.metrics.totalUnrealized >= 0 ? '+' : ''}
+                  €{preview.metrics.totalUnrealized.toLocaleString('de-DE', { maximumFractionDigits: 0 })}
+                </div>
               </div>
             </div>
 
-            {metrics && metrics.totalTrades > 0 && (
-              <div className="rounded-xl bg-slate-800/30 border border-slate-700 p-4">
-                <h3 className="text-sm font-semibold text-slate-200 mb-3 flex items-center gap-2">
-                  <Activity className="h-4 w-4 text-emerald-400" />
-                  Performance Historische Optionstrades
-                </h3>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                  <div><p className="text-slate-500 text-xs">Gesamt PnL</p>
-                    <p className={`font-semibold ${metrics.totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      €{metrics.totalPnl.toFixed(2)}
-                    </p></div>
-                  <div><p className="text-slate-500 text-xs">Win Rate</p>
-                    <p className="font-semibold text-slate-200">{metrics.winRate.toFixed(1)}%</p></div>
-                  <div><p className="text-slate-500 text-xs">Ø Gewinn</p>
-                    <p className="font-semibold text-emerald-400">€{metrics.avgWin.toFixed(2)}</p></div>
-                  <div><p className="text-slate-500 text-xs">Ø Verlust</p>
-                    <p className="font-semibold text-rose-400">€{metrics.avgLoss.toFixed(2)}</p></div>
-                </div>
-                <div className="mt-3 flex items-center gap-4 text-xs">
-                  <span className="flex items-center gap-1 text-emerald-400"><TrendingUp className="h-3 w-3" /> {metrics.winners} Wins</span>
-                  <span className="flex items-center gap-1 text-rose-400"><TrendingDown className="h-3 w-3" /> {metrics.losers} Losses</span>
-                  <span className="text-slate-500">PF: {metrics.profitFactor.toFixed(2)}</span>
+            {/* CC-Ready Positions */}
+            {preview.positions.length > 0 && (
+              <div className="mt-3">
+                <h4 className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">CC-Positionen</h4>
+                <div className="space-y-1 max-h-48 overflow-y-auto">
+                  {preview.positions.map(pos => (
+                    <div key={pos.symbol} className="flex items-center justify-between bg-slate-900/30 rounded px-3 py-2 text-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-semibold text-slate-200">{pos.symbol}</span>
+                        <span className="text-xs text-slate-500">{pos.shares} Shares</span>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-slate-300">€{pos.marketPrice.toFixed(2)}</div>
+                        <div className="text-xs text-slate-500">Ø €{pos.avgCost.toFixed(2)}</div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
+          </div>
 
-            {result.openPositions.length > 0 && (
-              <div className="rounded-xl bg-slate-800/30 border border-slate-700 overflow-hidden">
-                <div className="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-slate-200">Offene Positionen</h3>
-                  <button onClick={importPositions} disabled={imported}
-                    className="text-xs bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-3 py-1.5 rounded-md transition-colors">
-                    {imported ? <span className="flex items-center gap-1"><CheckCircle className="h-3 w-3" /> OK</span> : 'In Portfolio'}
-                  </button>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-800/50 text-slate-400">
-                      <tr><th className="px-4 py-2">Symbol</th><th className="px-4 py-2">Type</th><th className="px-4 py-2">Qty</th><th className="px-4 py-2">PnL</th></tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800">
-                      {result.openPositions.slice(0, 10).map(pos => (
-                        <tr key={pos.id} className="hover:bg-slate-800/30">
-                          <td className="px-4 py-2 font-medium text-slate-200">{pos.symbol}</td>
-                          <td className="px-4 py-2 text-slate-400">{pos.assetClass}</td>
-                          <td className="px-4 py-2 text-slate-300">{pos.quantity}</td>
-                          <td className={`px-4 py-2 font-medium ${pos.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>€{pos.pnl?.toFixed(2)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+          {/* Tax Preview */}
+          {preview.taxReports && preview.years.length > 0 && (
+            <div className="bg-slate-800/50 rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold text-slate-200">📊 Steuer-Vorschau</h3>
+                <div className="flex gap-1">
+                  {preview.years.map(year => (
+                    <button
+                      key={year}
+                      onClick={() => setTaxPreview(preview.taxReports[year])}
+                      className={`text-xs px-2 py-1 rounded transition-colors ${
+                        taxPreview?.year === year ? 'bg-emerald-600 text-white' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
+                      }`}
+                    >
+                      {year}
+                    </button>
+                  ))}
                 </div>
               </div>
-            )}
 
-            {result.trades.length > 0 && (
-              <div className="rounded-xl bg-slate-800/30 border border-slate-700 overflow-hidden">
-                <div className="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-slate-200">Letzte Trades</h3>
-                  <button onClick={importTrades} disabled={imported}
-                    className="text-xs bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-3 py-1.5 rounded-md transition-colors">
-                    {imported ? <span className="flex items-center gap-1"><CheckCircle className="h-3 w-3" /> OK</span> : 'In Journal'}
+              {taxPreview && (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-3 gap-2 text-xs">
+                    <div className="bg-slate-900/50 rounded p-2">
+                      <div className="text-slate-500">Kapitalerträge</div>
+                      <div className="font-mono text-emerald-400">€{taxPreview.summary.stockPnL.toFixed(2)}</div>
+                    </div>
+                    <div className="bg-slate-900/50 rounded p-2">
+                      <div className="text-slate-500">Optionsprämien</div>
+                      <div className="font-mono text-amber-400">€{taxPreview.summary.optionsPnL.toFixed(2)}</div>
+                    </div>
+                    <div className="bg-slate-900/50 rounded p-2">
+                      <div className="text-slate-500">Dividenden</div>
+                      <div className="font-mono text-blue-400">€{taxPreview.summary.dividendIncome.toFixed(2)}</div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="bg-slate-900/50 rounded p-2">
+                      <div className="text-slate-500">Gesamtsteuer</div>
+                      <div className="font-mono text-rose-400">€{taxPreview.tax.totalTax.toFixed(2)}</div>
+                    </div>
+                    <div className="bg-slate-900/50 rounded p-2">
+                      <div className="text-slate-500">Netto</div>
+                      <div className="font-mono text-emerald-400">€{taxPreview.tax.netGain.toFixed(2)}</div>
+                    </div>
+                  </div>
+
+                  {/* Tagesgenaue Aufstellung Toggle */}
+                  <button
+                    onClick={() => setShowTaxDetails(!showTaxDetails)}
+                    className="w-full text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 py-2 rounded transition-colors"
+                  >
+                    {showTaxDetails ? '▼' : '▶'} Tagesgenaue Aufstellung ({taxPreview.dailyReport?.length} Tage)
                   </button>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-800/50 text-slate-400">
-                      <tr><th className="px-4 py-2">Datum</th><th className="px-4 py-2">Symbol</th><th className="px-4 py-2">Side</th><th className="px-4 py-2">PnL</th></tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800">
-                      {result.trades.slice(0, 10).map(trade => (
-                        <tr key={trade.id} className="hover:bg-slate-800/30">
-                          <td className="px-4 py-2 text-slate-400">{trade.tradeDate?.split('T')[0]}</td>
-                          <td className="px-4 py-2 font-medium text-slate-200">{trade.symbol}</td>
-                          <td className="px-4 py-2">
-                            <span className={`inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                              trade.side === 'BUY' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
-                            }`}>{trade.side}</span>
-                          </td>
-                          <td className={`px-4 py-2 font-medium ${trade.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>€{trade.pnl?.toFixed(2)}</td>
-                        </tr>
+
+                  {showTaxDetails && taxPreview.dailyReport && (
+                    <div className="max-h-64 overflow-y-auto space-y-1">
+                      {taxPreview.dailyReport.map(day => (
+                        <div key={day.date} className="bg-slate-900/30 rounded p-2 text-xs">
+                          <div className="flex items-center justify-between font-medium text-slate-300">
+                            <span>{day.dateFormatted}</span>
+                            <span className={day.totalDay >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                              €{day.totalDay.toFixed(2)}
+                            </span>
+                          </div>
+                          {day.stockTrades.length > 0 && (
+                            <div className="text-slate-500 mt-1">
+                              {day.stockTrades.length} Aktienverkäufe: €{day.stockPnL.toFixed(2)}
+                            </div>
+                          )}
+                          {day.optionTrades.length > 0 && (
+                            <div className="text-slate-500">
+                              {day.optionTrades.length} Optionen: €{day.optionPremium.toFixed(2)}
+                            </div>
+                          )}
+                          {day.dividends.length > 0 && (
+                            <div className="text-slate-500">
+                              {day.dividends.length} Dividenden: €{day.dividendIncome.toFixed(2)}
+                            </div>
+                          )}
+                        </div>
                       ))}
-                    </tbody>
-                  </table>
+                    </div>
+                  )}
+
+                  {/* Export Buttons */}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={downloadTaxCSV}
+                      className="flex-1 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs py-2 rounded transition-colors"
+                    >
+                      📄 CSV Export
+                    </button>
+                    <button
+                      onClick={downloadTaxJSON}
+                      className="flex-1 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs py-2 rounded transition-colors"
+                    >
+                      📋 JSON Export
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
+              )}
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex gap-3">
+            <button
+              onClick={confirmImport}
+              className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-3 rounded-lg transition-colors"
+            >
+              ✅ Importieren & Speichern
+            </button>
+            <button
+              onClick={() => { setFiles([]); setPreview(null); setTaxPreview(null); }}
+              className="px-4 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition-colors"
+            >
+              Zurück
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
