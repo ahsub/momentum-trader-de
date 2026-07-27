@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+mport { useState, useEffect } from 'react';
 import {
   screenLeapCandidates,
   screenPmccCandidates,
@@ -45,28 +45,36 @@ export default function OptionsScanner() {
 
   const isStale = meta.lastTradingDay && meta.lastTradingDay !== new Date().toISOString().split('T')[0];
 
+  // ── Meta laden ──
   useEffect(() => {
     const m = getMarketMeta();
     if (m) setMeta(m);
   }, []);
 
+  // ── UIQ laden ──
   useEffect(() => {
     const checkUiq = () => {
       const cached = getCachedUiq();
       if (cached) {
         setUiq(cached);
       } else {
-        setTimeout(checkUiq, 2000);
+        setTimeout(checkUiq, 500);
       }
     };
     checkUiq();
   }, []);
 
+  // ── FIX: Ergebnisse leeren beim Strategie-Wechsel ──
+  useEffect(() => {
+    setResults([]);
+    setSelected(null);
+    setError(null);
+  }, [activeStrategy]);
+
   const handleRunScan = async () => {
     setLoading(true);
     setError(null);
     setSelected(null);
-    setResults([]);
 
     const screenerMap = {
       csp: () => screenCspCandidates(uiq),
@@ -107,7 +115,7 @@ export default function OptionsScanner() {
         <div>
           <h2 className="text-2xl font-bold text-white">Options Scanner</h2>
           <div className="flex flex-wrap items-center gap-2 mt-2">
-            <span className="text-sm text-slate-400">v2.5.0 — UIQ-Regime + CSP</span>
+            <span className="text-sm text-slate-400">v2.5.1 — UIQ-Regime + CSP</span>
             {meta.schema && (
               <span className="px-2 py-0.5 rounded-full text-xs bg-slate-800 text-slate-300">
                 Schema {meta.schema?.version || JSON.stringify(meta.schema)}
