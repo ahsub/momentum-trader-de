@@ -1,6 +1,11 @@
 /**
- * CapTrader / IBKR Flex Query XML Parser
+ * CapTrader / IBKR Flex Query XML Parser v2
  * Parst Steuerauswertung XML in strukturierte Portfolio-/Trade-Daten
+ * 
+ * v2 Erweiterungen:
+ * - Quellensteuer pro Dividende (WHT aus Funds)
+ * - Zinserträge aus Cash Transactions
+ * - Korrekte Realized P&L Zuordnung
  */
 
 function getAttr(el, name, fallback = '') {
@@ -18,7 +23,7 @@ function parseNumber(val) {
 export function parseFlexStatement(xmlString) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(xmlString, 'application/xml');
-  
+
   const parserError = doc.querySelector('parsererror');
   if (parserError) {
     throw new Error('XML Parse Error: ' + parserError.textContent);
@@ -67,7 +72,7 @@ export function parseFlexStatement(xmlString) {
   const tradeEls = stmt.querySelectorAll('Trade');
   for (const el of tradeEls) {
     const assetCategory = getAttr(el, 'assetCategory');
-    
+
     trades.push({
       accountId: getAttr(el, 'accountId'),
       tradeId: getAttr(el, 'tradeID'),
@@ -104,7 +109,7 @@ export function parseFlexStatement(xmlString) {
     });
   }
 
-  // === STATEMENT OF FUNDS ===
+  // === STATEMENT OF FUNDS (Cash Transactions) ===
   const funds = [];
   const fundEls = stmt.querySelectorAll('StatementOfFundsLine');
   for (const el of fundEls) {
@@ -165,19 +170,68 @@ export function parseFlexStatement(xmlString) {
     };
   }
 
-  // === DIVIDENDS ===
-  const dividends = funds.filter(f => 
+  // === DIVIDENDS mit Quellensteuer ===
+  // Dividenden aus Funds (activityCode DIV)
+  const dividendFunds = funds.filter(f => 
     f.activityCode === 'DIV' && f.assetCategory === 'STK'
-  ).map(f => ({
-    symbol: f.symbol,
-    description: f.description,
-    date: f.date,
-    amount: f.amount,
-    currency: f.currency,
-    isin: f.isin,
-    fxRate: f.fxRateToBase,
-    amountEUR: f.fxRateToBase ? f.amount / f.fxRateToBase : f.amount,
-  }));
+  );
+
+  // Quellensteuer aus Funds (activityCode WHT) – zuordnen per Symbol+Datum
+  const whtFunds = funds.filter(f => 
+    f.activityCode === 'WHT' && f.assetCategory === 'STK'
+  );
+
+  const dividends = dividendFunds.map(div => {
+    // Suche passende WHT für gleiches Symbol und Datum
+    const matchingWht = whtFunds.find(wht => 
+      wht.symbol === div.symbol && 
+      wht.date === div.date &&
+      Math.abs(wht.amount) > 0
+    );
+
+    return {
+      symbol: div.symbol,
+      description: div.description,
+      date: div.date,
+      amount: div.amount,
+      currency: div.currency,
+      isin: div.isin,
+      fxRate: div.fxRateToBase,
+      amountEUR: div.fxRateToBase ? div.amount / div.fxRateToBase : div.amount,
+      withholdingTax: matchingWht ? Math.abs(matchingWht.amount) : 0,
+      withholdingTaxEUR: matchingWht && matchingWht.fxRateToBase 
+        ? Math.abs(matchingWht.amount) / matchingWht.fxRateToBase 
+        : matchingWht ? Math.abs(matchingWht.amount) : 0,
+    };
+  });
+
+  // === ZINSEN (Interest) ===
+  // Aus Funds: activityCode BINT (Broker Interest) oder INT (Interest)
+  const interestFunds = funds.filter(f => 
+    f.activityCode === 'BINT' || f.activityCode === 'INT' || 
+    f.activityDescription?.toLowerCase().includes('interest')
+  );
+
+  const cashTransactions = [
+    ...interestFunds.map(f => ({
+      type: 'Interest',
+      date: f.date,
+      amount: f.amount,
+      currency: f.currency,
+      fxRate: f.fxRateToBase,
+      description: f.activityDescription || f.description,
+    })),
+    // Auch Dividenden als CashTransaction für Konsistenz
+    ...dividendFunds.map(f => ({
+      type: 'Dividend',
+      date: f.date,
+      amount: f.amount,
+      currency: f.currency,
+      fxRate: f.fxRateToBase,
+      description: f.description,
+      symbol: f.symbol,
+    })),
+  ];
 
   return {
     meta: {
@@ -186,15 +240,19 @@ export function parseFlexStatement(xmlString) {
       toDate,
       generated: getAttr(stmt, 'whenGenerated'),
     },
+    accountInformation: [{ accountId }],
     openPositions,
     trades,
     funds,
     cashReport,
+    cashReports: [cashReport],
     dividends,
+    cashTransactions,
     summary: {
       totalOpenPositions: openPositions.length,
       totalTrades: trades.length,
       totalDividends: dividends.length,
+      totalInterest: interestFunds.length,
     }
   };
 }
@@ -218,11 +276,13 @@ export function parseMultipleFlexQueries(xmlStrings) {
 
   const merged = {
     meta: results.map(r => r.meta),
+    accountInformation: results.flatMap(r => r.accountInformation || []),
     openPositions: results[results.length - 1].openPositions,
     allTrades: results.flatMap(r => r.trades),
     allFunds: results.flatMap(r => r.funds),
     allDividends: results.flatMap(r => r.dividends),
     cashReports: results.map(r => r.cashReport),
+    cashTransactions: results.flatMap(r => r.cashTransactions || []),
   };
 
   return merged;
@@ -246,7 +306,7 @@ export function extractUnderlyings(parsedData) {
  */
 export function calculatePositionsWithCostBasis(parsedData) {
   const { openPositions, allTrades } = parsedData;
-  
+
   const tradeHistory = {};
   allTrades?.forEach(t => {
     if (t.assetCategory !== 'STK') return;
