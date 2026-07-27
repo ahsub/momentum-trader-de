@@ -504,6 +504,28 @@ export function exportTaxCSV(report) {
 // MULTI-YEAR REPORT
 // ═══════════════════════════════════════════════════════════════
 
+
+/**
+ * JSON Export für Steuerberater
+ */
+export function exportTaxJSON(report) {
+  return JSON.stringify({
+    year: report.year,
+    summary: report.summary,
+    tax: report.tax,
+    dailyBreakdown: report.dailyBreakdown,
+    fifoDetails: {
+      totalRealizedEUR: report.fifoDetails.totalRealizedEUR,
+      tradeCount: report.fifoDetails.realizedTrades.length,
+    },
+    optionsDetails: {
+      totalPremiumEUR: report.optionsDetails.totalPremiumEUR,
+      positionCount: report.optionsDetails.positions.length,
+    },
+    dividends: report.dividends,
+  }, null, 2);
+}
+
 export function generateMultiYearReport(parsedData, years, taxOptions = {}) {
   return years.map(year => generateAnnualReport(parsedData, year, taxOptions));
 }
