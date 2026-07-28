@@ -1,6 +1,12 @@
 /**
- * Tax Report Service v3.2 – Refundex-kompatibel mit korrekter Options-Erkennung
- * 
+ * Tax Report Service v3.3 — Refundex-kompatibel mit korrekter ausländischer Broker-Logik
+ *
+ * CHANGES v3.3:
+ * - REMOVED: Sparer-Pauschbetrag deduction (not applicable for foreign brokers like CapTrader/IBKR)
+ * - KEPT: Strict EStG classification (Stillhalter §20 Abs. 1 Nr. 11, Termingeschäfte §20 Abs. 6)
+ * - ADDED: Kirchensteuer Hinweis für Steuererklärung
+ * - ADDED: Hinweis auf Sparer-Pauschbetrag (nur informativ, kein Abzug)
+ *
  * FIXES v3.2:
  * - Asset Category Erkennung: OPT, OOPT, OPTC, etc.
  * - realizedPnL Fallback auf proceeds wenn fifoPnlRealized leer ist
@@ -56,14 +62,14 @@ function isForexTrade(trade) {
   return cat === 'CASH' || cat === 'FX' || cat === 'FXT';
 }
 
-// ═══════════════════════════════════════════════════════════════
-// PERSISTENZ
-// ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+// PERSISTENCE
+// ═══════════════════════════════════════════════════════════════════════════════
 
 export function saveYearData(year, data) {
   try {
     const existing = loadAllYearData();
-    existing[year] = { ...data, _savedAt: Date.now(), _version: '3.2' };
+    existing[year] = { ...data, _savedAt: Date.now(), _version: '3.3' };
     localStorage.setItem(STORAGE_KEYS.TAX_YEAR_DATA, JSON.stringify(existing));
     return true;
   } catch (e) {
@@ -151,9 +157,9 @@ function mergeEvents(existing = [], newEvents = [], keyField = 'symbol') {
   return Array.from(map.values());
 }
 
-// ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
 // REALIZED P&L BERECHNUNG
-// ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
 
 export function calculateRealizedPnL(trades, year) {
   const yearTrades = trades.filter(t => {
@@ -177,7 +183,7 @@ export function calculateRealizedPnL(trades, year) {
     if (t.realizedPnl !== undefined && t.realizedPnl !== null && t.realizedPnl !== 0) {
       realizedPnL = t.realizedPnl;
     } else if (t.proceeds !== undefined && t.proceeds !== null) {
-      // Fallback: proceeds - commission als realized PnL
+      // Fallback: proceeds - commission als realisierter PnL
       realizedPnL = t.proceeds + (t.commission || 0);
     }
 
@@ -217,7 +223,7 @@ export function calculateRealizedPnL(trades, year) {
       }
 
       if (isShort) {
-        // Short-Option (Stillhalter) → Topf 1
+        // Short-Option (Stillhalter) → Topf 1 (§20 Abs. 1 Nr. 11 EStG)
         stillhalterEvents.push({
           symbol: t.symbol,
           underlying: t.underlyingSymbol || t.symbol,
@@ -235,7 +241,7 @@ export function calculateRealizedPnL(trades, year) {
         dailyPnL[date].optionsPnL += realizedPnL_EUR;
         dailyPnL[date].total += realizedPnL_EUR;
       } else {
-        // Long-Option (Termingeschäft) → Topf 3
+        // Long-Option (Termingeschäft) → Topf 3 (§20 Abs. 6 EStG)
         termingeschaeftEvents.push({
           symbol: t.symbol,
           underlying: t.underlyingSymbol || t.symbol,
@@ -271,9 +277,9 @@ export function calculateRealizedPnL(trades, year) {
   };
 }
 
-// ═══════════════════════════════════════════════════════════════
-// VERLUSTVERRECHNUNGSTÖPFE
-// ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+// VERLUSTVERRRECHNUNGSTÖPFE
+// ═══════════════════════════════════════════════════════════════════════════════
 
 export function calculateToepfe(events) {
   const toepfe = {
@@ -311,7 +317,7 @@ export function calculateToepfe(events) {
   toepfe.allgemein.net = toepfe.allgemein.gains - toepfe.allgemein.losses;
   toepfe.aktien.net = toepfe.aktien.gains - toepfe.aktien.losses;
 
-  return {
+  return { 
     allgemein: { ...toepfe.allgemein, net: round2(toepfe.allgemein.net) },
     aktien: { ...toepfe.aktien, net: round2(toepfe.aktien.net) },
     termin: { 
@@ -323,9 +329,9 @@ export function calculateToepfe(events) {
   };
 }
 
-// ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
 // DIVIDENDEN & ZINSEN
-// ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
 
 export function calculateDividends(parsedData, year) {
   return parsedData.allDividends?.filter(d => {
@@ -344,8 +350,7 @@ export function calculateDividends(parsedData, year) {
 }
 
 export function calculateInterest(parsedData, year) {
-  return parsedData.allInterest?.filter(i => {
-    const iYear = new Date(i.date).getFullYear();
+  return parsedData.allInterest?.filter(i => { const iYear = new Date(i.date).getFullYear();
     return iYear === year;
   }).map(i => ({
     date: i.date,
@@ -354,9 +359,9 @@ export function calculateInterest(parsedData, year) {
   })) || [];
 }
 
-// ═══════════════════════════════════════════════════════════════
-// STEUERBERECHNUNG
-// ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+// STEUERBERECHNUNG — KORRIGIERT für ausländische Broker (v3.3)
+// ═══════════════════════════════════════════════════════════════════════════════
 
 export function calculateGermanTaxes({
   toepfe,
@@ -366,6 +371,9 @@ export function calculateGermanTaxes({
   isJointAccount = false,
   sparerPauschbetragUsed = 0,
 }) {
+  // HINWEIS: Sparer-Pauschbetrag wird hier NICHT abgezogen, da CapTrader/IBKR
+  // ein ausländischer Broker ist und keine Freibeträge einräumen kann.
+  // Der Steuerpflichtige muss den Freibeträge beim Finanzamt beantragen.
   const sparerPauschbetrag = isJointAccount ? 2000 : 1000;
 
   const totalDividends = dividends_EUR.reduce((s, d) => s + d.amountEUR, 0);
@@ -374,9 +382,10 @@ export function calculateGermanTaxes({
 
   const totalGains = toepfe.allgemein.net + toepfe.aktien.net + toepfe.termin.net + totalDividends + totalInterest;
 
-  const remainingAllowance = Math.max(0, sparerPauschbetrag - sparerPauschbetragUsed);
-  const usedAllowance = Math.min(Math.max(0, totalGains), remainingAllowance);
-  const taxableGains = Math.max(0, totalGains - usedAllowance);
+  // v3.3 FIX: Kein Abzug des Sparer-Pauschbetrags im Broker-Report
+  // Der Pauschbetrag wird nur informativ angezeigt
+  const taxableGains = totalGains;  // Brutto = steuerpflichtig
+  const usedAllowance = 0;          // Kein Abzug im Broker-Report
 
   const abgeltung = taxableGains * TAX_RATES.abgeltungsteuer;
   const soli = abgeltung * TAX_RATES.soli;
@@ -417,9 +426,9 @@ export function calculateGermanTaxes({
   };
 }
 
-// ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
 // JAHRESBERICHT
-// ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
 
 export function generateAnnualReport(parsedData, year, taxOptions = {}) {
   const trades = parsedData.allTrades || [];
@@ -483,9 +492,9 @@ export function generateMultiYearReport(parsedData, years, taxOptions = {}) {
   return years.map(year => generateAnnualReport(parsedData, year, taxOptions));
 }
 
-// ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
 // EXPORTS
-// ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
 
 export function exportTaxCSV(report) {
   const rows = [
@@ -619,6 +628,8 @@ export function generateTaxReportHTML(report, options = {}) {
     .summary-grid .total { border-top: 2px solid rgba(255,255,255,0.3); padding-top: 8px; margin-top: 8px; font-size: 16px; font-weight: 700; }
     .warning-box { background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 12px 15px; margin: 15px 0; font-size: 13px; }
     .warning-box strong { color: #856404; }
+    .info-box { background: #e3f2fd; border: 1px solid #2196f3; border-radius: 6px; padding: 12px 15px; margin: 15px 0; font-size: 13px; }
+    .info-box strong { color: #1565c0; }
     .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #e0e0e0; font-size: 11px; color: #999; text-align: center; }
     .event-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 10px; }
     .event-table th { background: #e8f5e9; color: #1a5f2a; text-align: left; padding: 6px 8px; font-weight: 600; font-size: 10px; text-transform: uppercase; }
@@ -638,8 +649,8 @@ export function generateTaxReportHTML(report, options = {}) {
 <body>
   <div class="page">
     <div class="header">
-      <h1>📊 Steuerbericht Kapitalerträge</h1>
-      <div class="subtitle">Anlage KAP – Steuerjahr ${report.year}</div>
+      <h1>💰 Steuerbericht Kapitalerträge</h1>
+      <div class="subtitle">Anlage KAP — Steuerjahr ${report.year}</div>
     </div>
 
     <div class="taxpayer-info">
@@ -654,7 +665,7 @@ export function generateTaxReportHTML(report, options = {}) {
     </div>
 
     <div class="section">
-      <h2>📋 Anlage KAP – Zeilenübersicht</h2>
+      <h2>📋 Anlage KAP — Zeilenübersicht</h2>
       <table class="kap-table">
         <thead>
           <tr><th>Zeile</th><th>Beschreibung</th><th class="amount">Betrag (EUR)</th></tr>
@@ -708,12 +719,17 @@ export function generateTaxReportHTML(report, options = {}) {
       </div>` : ''}
     </div>
 
+    <div class="info-box">
+      <strong>ℹ️ Hinweis zum Sparer-Pauschbetrag:</strong> CapTrader/IBKR ist ein ausländischer Broker und kann keine Freibeträge einräumen. 
+      Der Sparer-Pauschbetrag von ${formatEUR(report.tax?.sparerPauschbetrag)} muss bei der Steuererklärung beim Finanzamt beantragt werden.
+    </div>
+
     <div class="summary-box">
       <h3>💰 Steuerliche Zusammenfassung</h3>
       <div class="summary-grid">
         <div class="row"><span>Gesamte Kapitalerträge:</span><span>${formatEUR(report.tax?.totalGains)}</span></div>
-        <div class="row"><span>Genutzter Sparer-Pauschbetrag:</span><span>${formatEUR(report.tax?.usedAllowance)}</span></div>
-        <div class="row"><span>Steuerpflichtige Erträge:</span><span>${formatEUR(report.tax?.taxableGains)}</span></div>
+        <div class="row"><span>Sparer-Pauschbetrag (nur Hinweis):</span><span>${formatEUR(report.tax?.sparerPauschbetrag)}</span></div>
+        <div class="row"><span>Steuerpflichtige Erträge (brutto):</span><span>${formatEUR(report.tax?.taxableGains)}</span></div>
         <div class="row"><span>Abgeltungsteuer (25%):</span><span>${formatEUR(report.tax?.abgeltungsteuer)}</span></div>
         <div class="row"><span>Solidaritätszuschlag (5,5%):</span><span>${formatEUR(report.tax?.soli)}</span></div>
         <div class="row"><span>Kirchensteuer:</span><span>${formatEUR(report.tax?.kirchensteuer)}</span></div>
@@ -730,7 +746,7 @@ export function generateTaxReportHTML(report, options = {}) {
     </div>` : ''}
 
     <div class="footer">
-      <p>Erstellt mit MomentumTrader DE – Steuerbericht ${report.year}</p>
+      <p>Erstellt mit MomentumTrader DE — Steuerbericht ${report.year}</p>
       <p>Dieser Bericht dient als Orientierung. Bitte gegen die offizielle CapTrader-Steuerbescheinigung prüfen.</p>
       <p>Generiert am ${new Date().toLocaleDateString('de-DE')} um ${new Date().toLocaleTimeString('de-DE')}</p>
     </div>
@@ -739,8 +755,8 @@ export function generateTaxReportHTML(report, options = {}) {
   ${report.stockEvents?.length > 0 ? `
   <div class="page page-break">
     <div class="header">
-      <h1>📈 Aktiengeschäfte – Einzelnachweis</h1>
-      <div class="subtitle">Steuerjahr ${report.year} – FIFO nach § 20 Abs. 4 Satz 7 EStG</div>
+      <h1>📈 Aktiengeschäfte — Einzelnachweis</h1>
+      <div class="subtitle">Steuerjahr ${report.year} — FIFO nach § 20 Abs. 4 Satz 7 EStG</div>
     </div>
     <table class="event-table">
       <thead>
@@ -764,8 +780,8 @@ export function generateTaxReportHTML(report, options = {}) {
   ${report.stillhalterEvents?.length > 0 ? `
   <div class="page page-break">
     <div class="header">
-      <h1>🎯 Stillhaltergeschäfte – Einzelnachweis</h1>
-      <div class="subtitle">Steuerjahr ${report.year} – § 20 Abs. 1 Nr. 11 EStG (Topf 1)</div>
+      <h1>🛡️ Stillhaltergeschäfte — Einzelnachweis</h1>
+      <div class="subtitle">Steuerjahr ${report.year} — § 20 Abs. 1 Nr. 11 EStG (Topf 1)</div>
     </div>
     <table class="event-table">
       <thead>
@@ -788,8 +804,8 @@ export function generateTaxReportHTML(report, options = {}) {
   ${report.termingeschaeftEvents?.length > 0 ? `
   <div class="page page-break">
     <div class="header">
-      <h1>📉 Termingeschäfte – Einzelnachweis</h1>
-      <div class="subtitle">Steuerjahr ${report.year} – § 20 Abs. 6 EStG (Topf 3)</div>
+      <h1>📉 Termingeschäfte — Einzelnachweis</h1>
+      <div class="subtitle">Steuerjahr ${report.year} — § 20 Abs. 6 EStG (Topf 3)</div>
     </div>
     <table class="event-table">
       <thead>
@@ -812,8 +828,8 @@ export function generateTaxReportHTML(report, options = {}) {
   ${report.dividends?.length > 0 ? `
   <div class="page page-break">
     <div class="header">
-      <h1>💵 Dividenden – Einzelnachweis</h1>
-      <div class="subtitle">Steuerjahr ${report.year} – Z. 7 Anlage KAP</div>
+      <h1>💵 Dividenden — Einzelnachweis</h1>
+      <div class="subtitle">Steuerjahr ${report.year} — Z. 7 Anlage KAP</div>
     </div>
     <table class="event-table">
       <thead>
