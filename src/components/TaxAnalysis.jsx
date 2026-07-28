@@ -8,6 +8,11 @@ const CHURCH_TAX_RATES = {
   other: { label: 'Andere Bundesländer (9%)', rate: 0.09 },
 };
 
+// === NULL-SAFE HELPERS ===
+const fmt = (n, digits = 2) => (n != null ? Number(n).toFixed(digits) : '0.00');
+const fmtPct = (n, digits = 2) => (n != null ? Number(n).toFixed(digits) : '0.00');
+const fmtAbs = (n, digits = 2) => (n != null ? Math.abs(Number(n)).toFixed(digits) : '0.00');
+
 export default function TaxAnalysis() {
   const [portfolioData, setPortfolioData] = useState(null);
   const [reports, setReports] = useState({});
@@ -89,7 +94,13 @@ export default function TaxAnalysis() {
     return <div className="text-slate-400 text-center py-12">Keine Daten für {activeYear}</div>;
   }
 
-  const { tax, summary, dailyBreakdown, fifoDetails, optionsDetails, dividends } = activeReport;
+  // === NULL-SAFE DESTRUCTURING ===
+  const tax = activeReport.tax || {};
+  const summary = activeReport.summary || {};
+  const dailyBreakdown = activeReport.dailyBreakdown || [];
+  const fifoDetails = activeReport.fifoDetails || { realizedTrades: [] };
+  const optionsDetails = activeReport.optionsDetails || { positions: [] };
+  const dividends = activeReport.dividends || [];
 
   return (
     <div className="space-y-6">
@@ -169,22 +180,22 @@ export default function TaxAnalysis() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <TaxCard
           label="Realisiert Gesamt"
-          value={`€${summary.totalRealizedPnL_EUR.toFixed(2)}`}
-          positive={summary.totalRealizedPnL_EUR >= 0}
+          value={`€${fmt(summary.totalRealizedPnL_EUR)}`}
+          positive={(summary.totalRealizedPnL_EUR ?? 0) >= 0}
         />
         <TaxCard
           label="Aktien P&L"
-          value={`€${summary.stockPnL_EUR.toFixed(2)}`}
-          positive={summary.stockPnL_EUR >= 0}
+          value={`€${fmt(summary.stockPnL_EUR)}`}
+          positive={(summary.stockPnL_EUR ?? 0) >= 0}
         />
         <TaxCard
           label="Optionen P&L"
-          value={`€${summary.optionsPnL_EUR.toFixed(2)}`}
-          positive={summary.optionsPnL_EUR >= 0}
+          value={`€${fmt(summary.optionsPnL_EUR)}`}
+          positive={(summary.optionsPnL_EUR ?? 0) >= 0}
         />
         <TaxCard
           label="Dividenden"
-          value={`€${summary.dividendIncome_EUR.toFixed(2)}`}
+          value={`€${fmt(summary.dividendIncome_EUR)}`}
           positive={true}
         />
       </div>
@@ -196,16 +207,16 @@ export default function TaxAnalysis() {
           <TaxRow label="Steuerpflichtige Erträge" value={tax.remainingTaxable} />
           <TaxRow label="Sparer-Pauschbetrag (genutzt)" value={tax.usedAllowance} color="text-emerald-400" />
           <div className="border-t border-slate-700 my-2" />
-          <TaxRow label="Abgeltungsteuer (25%)" value={-tax.abgeltungsteuer} />
-          <TaxRow label="Solidaritätszuschlag (5,5%)" value={-tax.soli} />
-          {tax.kirchensteuer > 0 && (
-            <TaxRow label={`Kirchensteuer (${(CHURCH_TAX_RATES[churchTaxKey].rate * 100).toFixed(0)}%)`} value={-tax.kirchensteuer} />
+          <TaxRow label="Abgeltungsteuer (25%)" value={-(tax.abgeltungsteuer ?? 0)} />
+          <TaxRow label="Solidaritätszuschlag (5,5%)" value={-(tax.soli ?? 0)} />
+          {(tax.kirchensteuer ?? 0) > 0 && (
+            <TaxRow label={`Kirchensteuer (${fmt(CHURCH_TAX_RATES[churchTaxKey].rate * 100, 0)}%)`} value={-(tax.kirchensteuer ?? 0)} />
           )}
           <div className="border-t border-slate-700 my-2" />
-          <TaxRow label="Gesamtsteuer" value={-tax.totalTax} bold />
-          <TaxRow label="Netto nach Steuern" value={tax.netGain} bold positive={tax.netGain >= 0} />
+          <TaxRow label="Gesamtsteuer" value={-(tax.totalTax ?? 0)} bold />
+          <TaxRow label="Netto nach Steuern" value={tax.netGain ?? 0} bold positive={(tax.netGain ?? 0) >= 0} />
           <div className="text-xs text-slate-500 mt-2">
-            Effektiver Steuersatz: {tax.effectiveTaxRate.toFixed(2)}%
+            Effektiver Steuersatz: {fmtPct(tax.effectiveTaxRate)}%
           </div>
         </div>
       </div>
@@ -227,30 +238,36 @@ export default function TaxAnalysis() {
               </tr>
             </thead>
             <tbody>
-              {dailyBreakdown.map((day, i) => (
-                <tr key={i} className="border-b border-slate-800/50 hover:bg-slate-800/30">
-                  <td className="py-2 px-3 font-mono text-slate-300">{day.date}</td>
-                  <td className={`py-2 px-3 text-right ${day.stockPnL !== 0 ? (day.stockPnL > 0 ? 'text-emerald-400' : 'text-red-400') : 'text-slate-500'}`}>
-                    {day.stockPnL !== 0 ? (day.stockPnL > 0 ? '+' : '') + day.stockPnL.toFixed(2) : '—'}
-                  </td>
-                  <td className={`py-2 px-3 text-right ${day.optionsPnL !== 0 ? (day.optionsPnL > 0 ? 'text-emerald-400' : 'text-red-400') : 'text-slate-500'}`}>
-                    {day.optionsPnL !== 0 ? (day.optionsPnL > 0 ? '+' : '') + day.optionsPnL.toFixed(2) : '—'}
-                  </td>
-                  <td className={`py-2 px-3 text-right ${day.dividends !== 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
-                    {day.dividends !== 0 ? '+' + day.dividends.toFixed(2) : '—'}
-                  </td>
-                  <td className={`py-2 px-3 text-right font-semibold ${day.total >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                    {day.total >= 0 ? '+' : ''}{day.total.toFixed(2)}
-                  </td>
-                </tr>
-              ))}
+              {dailyBreakdown.map((day, i) => {
+                const stockPnL = day.stockPnL ?? 0;
+                const optionsPnL = day.optionsPnL ?? 0;
+                const dividendsDay = day.dividends ?? 0;
+                const total = day.total ?? 0;
+                return (
+                  <tr key={i} className="border-b border-slate-800/50 hover:bg-slate-800/30">
+                    <td className="py-2 px-3 font-mono text-slate-300">{day.date || '—'}</td>
+                    <td className={`py-2 px-3 text-right ${stockPnL !== 0 ? (stockPnL > 0 ? 'text-emerald-400' : 'text-red-400') : 'text-slate-500'}`}>
+                      {stockPnL !== 0 ? (stockPnL > 0 ? '+' : '') + fmt(stockPnL) : '—'}
+                    </td>
+                    <td className={`py-2 px-3 text-right ${optionsPnL !== 0 ? (optionsPnL > 0 ? 'text-emerald-400' : 'text-red-400') : 'text-slate-500'}`}>
+                      {optionsPnL !== 0 ? (optionsPnL > 0 ? '+' : '') + fmt(optionsPnL) : '—'}
+                    </td>
+                    <td className={`py-2 px-3 text-right ${dividendsDay !== 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
+                      {dividendsDay !== 0 ? '+' + fmt(dividendsDay) : '—'}
+                    </td>
+                    <td className={`py-2 px-3 text-right font-semibold ${total >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {total >= 0 ? '+' : ''}{fmt(total)}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       </div>
 
       {/* FIFO Details */}
-      {fifoDetails.realizedTrades.length > 0 && (
+      {(fifoDetails.realizedTrades || []).length > 0 && (
         <div className="bg-slate-800/50 rounded-xl p-4">
           <h3 className="font-semibold text-slate-200 mb-3">FIFO Details – Aktienverkäufe</h3>
           <div className="overflow-x-auto max-h-64">
@@ -269,15 +286,15 @@ export default function TaxAnalysis() {
               <tbody>
                 {fifoDetails.realizedTrades.map((t, i) => (
                   <tr key={i} className="border-b border-slate-800/50 hover:bg-slate-800/30">
-                    <td className="py-2 px-3 font-mono text-slate-300">{t.sellDate}</td>
-                    <td className="py-2 px-3 font-semibold text-slate-200">{t.symbol}</td>
-                    <td className="py-2 px-3 text-right text-slate-300">{t.quantity}</td>
-                    <td className="py-2 px-3 text-right text-slate-300">{t.proceedsEUR.toFixed(2)}</td>
-                    <td className="py-2 px-3 text-right text-slate-400">{t.totalCostEUR.toFixed(2)}</td>
-                    <td className={`py-2 px-3 text-right font-semibold ${t.realizedPnlEUR >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                      {t.realizedPnlEUR >= 0 ? '+' : ''}{t.realizedPnlEUR.toFixed(2)}
+                    <td className="py-2 px-3 font-mono text-slate-300">{t.sellDate || '—'}</td>
+                    <td className="py-2 px-3 font-semibold text-slate-200">{t.symbol || '—'}</td>
+                    <td className="py-2 px-3 text-right text-slate-300">{t.quantity ?? '—'}</td>
+                    <td className="py-2 px-3 text-right text-slate-300">{fmt(t.proceedsEUR)}</td>
+                    <td className="py-2 px-3 text-right text-slate-400">{fmt(t.totalCostEUR)}</td>
+                    <td className={`py-2 px-3 text-right font-semibold ${(t.realizedPnlEUR ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {(t.realizedPnlEUR ?? 0) >= 0 ? '+' : ''}{fmt(t.realizedPnlEUR)}
                     </td>
-                    <td className="py-2 px-3 text-right text-slate-500">{t.holdingPeriodDays} Tage</td>
+                    <td className="py-2 px-3 text-right text-slate-500">{t.holdingPeriodDays ?? '—'} Tage</td>
                   </tr>
                 ))}
               </tbody>
@@ -287,7 +304,7 @@ export default function TaxAnalysis() {
       )}
 
       {/* Options Details */}
-      {optionsDetails.positions.length > 0 && (
+      {(optionsDetails.positions || []).length > 0 && (
         <div className="bg-slate-800/50 rounded-xl p-4">
           <h3 className="font-semibold text-slate-200 mb-3">Options-Details</h3>
           <div className="space-y-2 max-h-64 overflow-y-auto">
@@ -295,18 +312,18 @@ export default function TaxAnalysis() {
               <div key={i} className="bg-slate-900/50 rounded-lg p-3">
                 <div className="flex items-center justify-between mb-1">
                   <span className="font-mono font-semibold text-slate-200">
-                    {pos.underlying} {pos.putCall} {pos.strike} {pos.expiry}
+                    {pos.underlying || '—'} {pos.putCall || ''} {pos.strike || ''} {pos.expiry || ''}
                   </span>
-                  <span className={`text-sm font-medium ${pos.netPremiumEUR >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                    {pos.netPremiumEUR >= 0 ? '+' : ''}€{pos.netPremiumEUR.toFixed(2)}
+                  <span className={`text-sm font-medium ${(pos.netPremiumEUR ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {(pos.netPremiumEUR ?? 0) >= 0 ? '+' : ''}€{fmt(pos.netPremiumEUR)}
                   </span>
                 </div>
                 <div className="text-xs text-slate-500 space-y-1">
-                  {pos.tradeDetails.map((td, j) => (
+                  {(pos.tradeDetails || []).map((td, j) => (
                     <div key={j} className="flex justify-between">
-                      <span>{td.date} – {td.buySell} {td.quantity} @ {td.price.toFixed(2)}</span>
-                      <span className={td.premiumEUR >= 0 ? 'text-emerald-400' : 'text-red-400'}>
-                        {td.premiumEUR >= 0 ? '+' : ''}€{td.premiumEUR.toFixed(2)}
+                      <span>{td.date || '—'} – {td.buySell || ''} {td.quantity ?? ''} @ {fmt(td.price)}</span>
+                      <span className={(td.premiumEUR ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                        {(td.premiumEUR ?? 0) >= 0 ? '+' : ''}€{fmt(td.premiumEUR)}
                       </span>
                     </div>
                   ))}
@@ -318,7 +335,7 @@ export default function TaxAnalysis() {
       )}
 
       {/* Dividends */}
-      {dividends.length > 0 && (
+      {(dividends || []).length > 0 && (
         <div className="bg-slate-800/50 rounded-xl p-4">
           <h3 className="font-semibold text-slate-200 mb-3">Dividenden</h3>
           <div className="overflow-x-auto max-h-48">
@@ -335,11 +352,11 @@ export default function TaxAnalysis() {
               <tbody>
                 {dividends.map((d, i) => (
                   <tr key={i} className="border-b border-slate-800/50">
-                    <td className="py-2 px-3 font-mono text-slate-300">{d.date}</td>
-                    <td className="py-2 px-3 font-semibold text-slate-200">{d.symbol}</td>
-                    <td className="py-2 px-3 text-right text-emerald-400">€{d.amountEUR.toFixed(2)}</td>
-                    <td className="py-2 px-3 text-right text-slate-400">{d.amountOriginal.toFixed(2)} {d.currency}</td>
-                    <td className="py-2 px-3 text-right text-slate-500">{d.fxRate.toFixed(4)}</td>
+                    <td className="py-2 px-3 font-mono text-slate-300">{d.date || '—'}</td>
+                    <td className="py-2 px-3 font-semibold text-slate-200">{d.symbol || '—'}</td>
+                    <td className="py-2 px-3 text-right text-emerald-400">€{fmt(d.amountEUR)}</td>
+                    <td className="py-2 px-3 text-right text-slate-400">{fmt(d.amountOriginal)} {d.currency || ''}</td>
+                    <td className="py-2 px-3 text-right text-slate-500">{fmt(d.fxRate, 4)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -364,12 +381,13 @@ function TaxCard({ label, value, positive }) {
 
 function TaxRow({ label, value, bold, positive, color }) {
   const cls = bold ? 'font-semibold' : '';
-  const valCls = color || (positive !== undefined ? (positive ? 'text-emerald-400' : 'text-red-400') : value >= 0 ? 'text-emerald-400' : 'text-red-400');
+  const numVal = value != null ? Number(value) : 0;
+  const valCls = color || (positive !== undefined ? (positive ? 'text-emerald-400' : 'text-red-400') : numVal >= 0 ? 'text-emerald-400' : 'text-red-400');
   return (
     <div className={`flex justify-between ${cls}`}>
       <span className="text-slate-400">{label}</span>
       <span className={valCls}>
-        {value >= 0 ? '+' : ''}€{Math.abs(value).toFixed(2)}
+        {numVal >= 0 ? '+' : ''}€{fmtAbs(value)}
       </span>
     </div>
   );
