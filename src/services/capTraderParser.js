@@ -1,11 +1,13 @@
 /**
- * CapTrader / IBKR Flex Query XML Parser v3.1 – ROBUST
+ * CapTrader / IBKR Flex Query XML Parser v3.2 – ROBUST (für echte Flex Query Struktur)
  * Parst ALLE in der Flex Query möglichen Cash Transactions
  * 
- * v3.1 Änderungen:
- * - Null-sichere getAttr() Funktion (kein Crash bei fehlenden Elementen)
- * - Optionale Sections (AccountInformation, CashReport, etc.)
- * - Graceful degradation bei unvollständigen XML-Daten
+ * v3.2 Änderungen:
+ * - Unterstützt <FlexQueryResponse> Struktur mit <FlexStatements>
+ * - Funds können unter <StmtFunds> oder direkt unter <FlexStatement> liegen
+ * - Kein <AccountInformation> Element nötig (Attribute direkt auf FlexStatement)
+ * - Null-sichere getAttr() Funktion
+ * - Graceful degradation bei fehlenden XML-Attributen
  */
 
 function getAttr(el, name, fallback = '') {
@@ -34,12 +36,15 @@ const ACTIVITY_CODE_MAP = {
   // === QUELLENSTEUER ===
   WHT:  { type: 'withholding',  taxCategory: 'KAP_Z41',  description: 'Quellensteuer' },
   WHTX: { type: 'withholding',  taxCategory: 'KAP_Z41',  description: 'Quellensteuer (korrigiert)' },
+  FRTAX: { type: 'withholding', taxCategory: 'KAP_Z41',  description: 'Fremdwährungs-Steuer' },
+  STAX: { type: 'withholding',  taxCategory: 'KAP_Z41',  description: 'Sales Tax / VAT' },
 
   // === ZINSEN ===
   BINT: { type: 'interest',     taxCategory: 'KAP_Z14',  description: 'Broker-Zinsen' },
   INT:  { type: 'interest',     taxCategory: 'KAP_Z14',  description: 'Zinsen' },
   INTN: { type: 'interest',     taxCategory: 'KAP_Z14',  description: 'Zinsen (Netto)' },
   MI:   { type: 'interest',     taxCategory: 'KAP_Z14',  description: 'Margin Interest' },
+  CINT: { type: 'interest',     taxCategory: 'KAP_Z14',  description: 'Credit Interest' },
 
   // === EIN-/AUSZAHLUNGEN ===
   DEP:  { type: 'deposit',      taxCategory: 'NONE',     description: 'Einzahlung' },
@@ -47,16 +52,24 @@ const ACTIVITY_CODE_MAP = {
 
   // === GEBÜHREN & KOSTEN ===
   FEE:  { type: 'fee',          taxCategory: 'KAP_Z9',   description: 'Gebühr' },
+  OFEE: { type: 'fee',          taxCategory: 'KAP_Z9',   description: 'Market Data Fee' },
   COM:  { type: 'commission',   taxCategory: 'KAP_Z9',   description: 'Provision' },
   TAX:  { type: 'tax',          taxCategory: 'KAP_Z9',   description: 'Steuer' },
+
+  // === TRADES ===
+  BUY:  { type: 'trade',        taxCategory: 'KAP_Z8',   description: 'Kauf' },
+  SELL: { type: 'trade',        taxCategory: 'KAP_Z8',   description: 'Verkauf' },
+
+  // === FOREX ===
+  FOREX: { type: 'forex',       taxCategory: 'ANLAGE_SO', description: 'Devisengeschäft' },
+  FX:   { type: 'forex',        taxCategory: 'ANLAGE_SO', description: 'Devisengeschäft' },
+  FXT:  { type: 'forex',        taxCategory: 'ANLAGE_SO', description: 'Forex Trade' },
 
   // === CORPORATE ACTIONS ===
   CA:   { type: 'corporate',    taxCategory: 'KAP_Z8',   description: 'Corporate Action' },
   SP:   { type: 'corporate',    taxCategory: 'KAP_Z8',   description: 'Stock Split' },
 
-  // === FOREX / CFD / CRYPTO (Erweiterbar) ===
-  FX:   { type: 'forex',        taxCategory: 'ANLAGE_SO', description: 'Devisengeschäft' },
-  FXT:  { type: 'forex',        taxCategory: 'ANLAGE_SO', description: 'Forex Trade' },
+  // === CFD / CRYPTO (Erweiterbar) ===
   CFD:  { type: 'cfd',          taxCategory: 'KAP_Z12',  description: 'CFD-Geschäft' },
   CRY:  { type: 'crypto',       taxCategory: 'KAP_Z12',  description: 'Kryptohandel' },
 
@@ -104,14 +117,17 @@ export function parseFlexStatement(xmlString) {
     throw new Error('XML Parse Error: ' + parserError.textContent);
   }
 
-  const stmt = doc.querySelector('FlexStatement');
-  if (!stmt) throw new Error('Kein FlexStatement in XML gefunden');
+  // Try to find FlexStatement (could be under FlexQueryResponse > FlexStatements)
+  let stmt = doc.querySelector('FlexStatement');
+  if (!stmt) {
+    throw new Error('Kein FlexStatement in XML gefunden');
+  }
 
   const accountId = getAttr(stmt, 'accountId');
   const fromDate = getAttr(stmt, 'fromDate');
   const toDate = getAttr(stmt, 'toDate');
 
-  // === ACCOUNT INFORMATION (optional) ===
+  // === ACCOUNT INFORMATION (optional – attributes directly on FlexStatement) ===
   const accountInfoEl = stmt.querySelector('AccountInformation');
   const accountInfo = {
     accountId,
@@ -200,8 +216,15 @@ export function parseFlexStatement(xmlString) {
   }
 
   // === STATEMENT OF FUNDS – GENERISCH (ROBUST) ===
+  // Funds can be under <StmtFunds> or directly under <FlexStatement>
   const funds = [];
-  const fundEls = stmt.querySelectorAll('StatementOfFundsLine');
+
+  // Try StmtFunds first, then direct children
+  let fundEls = stmt.querySelectorAll('StmtFunds > StatementOfFundsLine');
+  if (fundEls.length === 0) {
+    fundEls = stmt.querySelectorAll('StatementOfFundsLine');
+  }
+
   for (const el of fundEls) {
     const levelOfDetail = getAttr(el, 'levelOfDetail');
     if (levelOfDetail !== 'BaseCurrency') continue;
