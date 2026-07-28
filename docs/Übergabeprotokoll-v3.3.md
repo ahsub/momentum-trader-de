@@ -1,0 +1,175 @@
+# Übergabeprotokoll v3.3 – Steuer-Modul (Refundex-kompatibel)
+
+**Datum:** 2026-07-28  
+**Version:** v3.3  
+**Autor:** Axel Hildebrand
+
+---
+
+## Zusammenfassung
+
+Das Steuer-Modul v3.3 ist eine Korrektur-Release auf Basis von v3.2. Die Hauptänderung betrifft die **korrekte Behandlung des Sparer-Pauschbetrags für ausländische Broker** (CapTrader/IBKR).
+
+Zusätzlich wurden Erkenntnisse aus der **SWOT-Analyse** (2026-07-28) integriert und als Architektur-Refactoring-Punkte in die Roadmap aufgenommen.
+
+---
+
+## Inhalt
+
+### 1. Steuer-Modul v3.3 (`taxReportService.js`)
+
+**Datei:** `src/services/taxReportService.js`  
+**Status:** ✅ Bereit für Integration
+
+#### Änderungen gegenüber v3.2
+
+| # | Änderung | Begründung | Status |
+|---|----------|-----------|--------|
+| 1 | **Sparer-Pauschbetrag-Abzug entfernt** | CapTrader/IBKR ist ausländischer Broker, kann keine Freibeträge einräumen | ✅ Implementiert |
+| 2 | **Stillhalter-Klassifizierung nach EStG beibehalten** | Short-Optionen → Topf 1 (§20 Abs. 1 Nr. 11), Long-Optionen → Topf 3 (§20 Abs. 6) | ✅ Bestätigt |
+| 3 | **Kirchensteuer-Hinweis hinzugefügt** | Separate Anzeige im Report für Steuererklärung | ✅ Implementiert |
+| 4 | **Info-Box zum Sparer-Pauschbetrag** | Erklärung: Muss beim Finanzamt beantragt werden | ✅ Implementiert |
+
+#### Technische Details
+
+**Vorher (v3.2 – FALSCH):**
+```javascript
+const remainingAllowance = Math.max(0, sparerPauschbetrag - sparerPauschbetragUsed);
+const usedAllowance = Math.min(Math.max(0, totalGains), remainingAllowance);
+const taxableGains = Math.max(0, totalGains - usedAllowance);
+```
+
+**Nachher (v3.3 – KORREKT):**
+```javascript
+// v3.3 FIX: Kein Abzug des Sparer-Pauschbetrags im Broker-Report
+// Der Pauschbetrag wird nur informativ angezeigt
+const taxableGains = totalGains;  // Brutto = steuerpflichtig
+const usedAllowance = 0;          // Kein Abzug im Broker-Report
+```
+
+#### KAP-Zeilen-Zuordnung (EStG-konform)
+
+| Zeile | Inhalt | Topf | § EStG |
+|-------|--------|------|--------|
+| Z. 7 | Bardividenden | — | § 20 Abs. 1 Nr. 1 |
+| Z. 8 | Aktiengewinne | Topf 2 | § 20 Abs. 2 |
+| Z. 9 | Aktienverluste / ETF-Vorabpauschale | Topf 2 | § 20 Abs. 2 / § 18 InvStG |
+| Z. 12 | Stillhaltergewinne + Termingewinne | Topf 1 + Topf 3 | § 20 Abs. 1 Nr. 11 + § 20 Abs. 6 |
+| Z. 13 | Stillhalterverluste + Terminverluste | Topf 1 + Topf 3 | § 20 Abs. 1 Nr. 11 + § 20 Abs. 6 |
+| Z. 14 | Zinserträge | Topf 1 | § 20 Abs. 1 Nr. 7 |
+| Z. 41 | Anrechenbare Quellensteuer | — | § 36 Abs. 2 Nr. 2 |
+
+**Hinweis:** Die Kombination von Z. 12/Z. 13 (Topf 1 + Topf 3) ist steuerrechtlich korrekt, da beide Positionen in der Anlage KAP in denselben Zeilen erfasst werden.
+
+---
+
+### 2. Bekannte Probleme (Status Update)
+
+| # | Problem | Status | Priorität | Lösung |
+|---|---------|--------|-----------|--------|
+| 1 | ETF-Vorabpauschale (€26,83 in Z. 9) | 🔴 Offen | Hoch | Muss aus IBKR-Daten extrahiert werden |
+| 2 | Optionsprämien-Berechnung | 🟡 Erkannt | Mittel | Aktuell korrekt nach EStG, aber CapTrader fasst alle Optionen unter §20 Abs. 6 zusammen |
+| 3 | Kirchensteuer-Berechnung | 🟡 Hinweis | Mittel | Wird berechnet, aber nicht in KAP-Zeilen ausgewiesen |
+
+---
+
+### 3. Steuerliche Grundlagen (für CapTrader/IBKR)
+
+#### Sparer-Pauschbetrag
+- **Einzelkonto:** €1.000
+- **Gemeinschaftskonto:** €2.000 (je €1.000 pro Ehegatte)
+- **Wichtig:** CapTrader/IBKR kann diesen **nicht** einräumen
+- **Handlung:** Der Steuerpflichtige muss den Freibetrag bei der Steuererklärung beim Finanzamt beantragen
+
+#### Verlustverrechnung §20 Abs. 6
+- **Grenze:** €20.000 pro Jahr
+- **Verrechenbar:** Verluste aus Termingeschäften nur mit Gewinnen aus Termingeschäften
+- **Überschuss:** Wird ins Folgejahr vorgetragen
+
+#### Quellensteuer-Anrechnung
+- **Maximum:** 15% DBA-Satz (anrechenbar)
+- **Höhere Quellensteuer:** Kann als Werbungskosten geltend gemacht werden
+
+---
+
+### 4. Integration & Tests
+
+#### Integration
+1. `taxReportService_v3.3.js` in `src/services/taxReportService.js` kopieren
+2. Version in `_version: '3.3'` aktualisieren
+3. Tests ausführen: `npm test`
+
+#### Testfälle
+- [ ] Sparer-Pauschbetrag wird nicht abgezogen (`usedAllowance === 0`)
+- [ ] Stillhalter werden in Topf 1 klassifiziert
+- [ ] Termingeschäfte werden in Topf 3 klassifiziert
+- [ ] Info-Box wird im HTML-Report angezeigt
+- [ ] Kirchensteuer wird korrekt berechnet und angezeigt
+
+---
+
+### 5. Validierung mit realen Steuerdaten 2024
+
+| Position | Steuerbescheinigung | App-Berechnung | Abweichung |
+|----------|---------------------|----------------|------------|
+| Dividenden Z. 7 | €1.149,54 | TBD | — |
+| Aktiengewinne Z. 8 | €4.209,95 | TBD | — |
+| Aktienverluste Z. 9 | €0,00 | TBD | — |
+| Optionsgewinne Z. 12 | €1.965,28 | TBD | — |
+| Optionsverluste Z. 13 | -€896,13 | TBD | — |
+| Zinsen Z. 14 | €86,59 | TBD | — |
+| Quellensteuer Z. 41 | €119,84 | TBD | — |
+
+**Aktion:** Nach Integration mit echten IBKR-Daten validieren.
+
+---
+
+### 6. SWOT-Analyse — Architektur-Erkenntnisse (2026-07-28)
+
+Die SWOT-Analyse hat folgende **kritische Architektur-Probleme** identifiziert, die parallel zum Steuer-Modul adressiert werden müssen:
+
+#### A1. Store-Konsolidierung (KRITISCH)
+- **Problem:** `src/store/McmStore.ts` (Klassen-basiert) vs. `src/stores/portfolioStore.js` (Zustand)
+- **Lösung:** Alles auf Zustand konsolidieren, `src/store/` löschen
+
+#### A2. UIQ-Bridge-Konsolidierung (KRITISCH)
+- **Problem:** `koAggregatorBridge.js` und `uiqBridge.js` ohne gemeinsamen Cache
+- **Lösung:** Einen `aggregatorStore.js` mit Zustand erstellen
+
+#### A3. Regime-Taxonomie-Einheitlichkeit (KRITISCH)
+- **Problem:** Drei verschiedene Regime-Definitionen im selben Ökosystem
+- **Lösung:** UIQ's Taxonomie (BULL_QUIET etc.) als kanonisch festlegen
+
+#### A4. Komponenten-Refactoring (MITTEL)
+- **Problem:** Monolithen auf Komponentenebene (OptionsScanner.jsx 33 KB, AlertPanel.jsx 23 KB)
+- **Lösung:** Max. ~300 Zeilen pro Datei, in Sub-Komponenten aufteilen
+
+**Vollständige Details:** Siehe `docs/Roadmap-v2-Steuer-v3.3-SWOT.md`
+
+---
+
+### 7. Nächste Schritte (Roadmap)
+
+**Steuer-Modul:**
+- Phase 5 (v3.4): ETF-Vorabpauschale & Gemeinschaftskonto-Export
+- Phase 6 (v3.5): ELSTER/WISO-Export & Kirchensteuer-Integration
+- Phase 7 (v4.0): Automatische IBKR-API-Integration
+
+**Architektur-Refactoring:**
+- A1: Store-Konsolidierung (src/store/ → src/stores/)
+- A2: UIQ-Bridge-Konsolidierung (aggregatorStore)
+- A3: Regime-Taxonomie-Einheitlichkeit
+- A4: Komponenten-Refactoring (<300 Zeilen)
+
+---
+
+### 8. Kontakt & Feedback
+
+Bei Abweichungen zwischen App-Berechnung und offizieller CapTrader-Steuerbescheinigung:
+1. Screenshot der Abweichung erstellen
+2. IBKR Flex Query CSV exportieren
+3. Issue auf GitHub erstellen: `github.com/ahsub/Momentum-trader-de/issues`
+
+---
+
+*Letzte Aktualisierung: 2026-07-28 (inkl. SWOT-Analyse)*
