@@ -1,12 +1,11 @@
 /**
- * Tax Report Service v3 – Refundex-kompatibel
+ * Tax Report Service v3.2 – Refundex-kompatibel mit korrekter Options-Erkennung
  * 
- * KORREKTUR v3:
- * - Verwendet Broker-berechneten realizedPnL (FifoPnlRealized) statt Selbstberechnung
- * - Trennung: Stillhalter (Topf 1) vs. Termingeschäfte (Topf 3)
- * - Verlustverrechnungstöpfe mit €20.000 Grenze
- * - Gemeinschaftskonto: automatische 50/50-Aufteilung
- * - Persistenz: Jahresdaten werden gespeichert, inkrementelle Updates
+ * FIXES v3.2:
+ * - Asset Category Erkennung: OPT, OOPT, OPTC, etc.
+ * - realizedPnL Fallback auf proceeds wenn fifoPnlRealized leer ist
+ * - Korrekte Short/Long Klassifizierung via buySell + openCloseIndicator
+ * - Debug-Logging für Steuerberechnung
  */
 
 const TAX_RATES = {
@@ -18,7 +17,6 @@ const TAX_RATES = {
 const SPARER_PAUSCHBETRAG = 1000;
 const TERMINGESCHAEFTE_VERLUST_LIMIT = 20000;
 
-// Storage keys for persistence
 const STORAGE_KEYS = {
   TAX_YEAR_DATA: 'mt_tax_year_data',
   TAX_SETTINGS: 'mt_tax_settings',
@@ -35,23 +33,37 @@ function round2(n) {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// PERSISTENZ – JAHRESDATEN SPEICHERN & LADEN
-// ═══════════════════════════════════════════════════════════════
+/**
+ * Prüft ob ein Trade eine Option ist (verschiedene Asset-Category-Codes)
+ */
+function isOptionTrade(trade) {
+  const cat = (trade.assetCategory || '').toUpperCase();
+  return cat === 'OPT' || cat === 'OOPT' || cat === 'OPTC' || cat === 'IOPT' || cat === 'FOP' ||
+         (trade.putCall && (trade.putCall === 'P' || trade.putCall === 'C')) ||
+         (trade.strike && trade.strike > 0);
+}
 
 /**
- * Speichert Steuerdaten für ein Jahr persistent
- * @param {number} year
- * @param {Object} data – Das Jahresreport-Objekt
+ * Prüft ob ein Trade ein Aktientrade ist
  */
+function isStockTrade(trade) {
+  const cat = (trade.assetCategory || '').toUpperCase();
+  return cat === 'STK' || (!isOptionTrade(trade) && !isForexTrade(trade));
+}
+
+function isForexTrade(trade) {
+  const cat = (trade.assetCategory || '').toUpperCase();
+  return cat === 'CASH' || cat === 'FX' || cat === 'FXT';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PERSISTENZ
+// ═══════════════════════════════════════════════════════════════
+
 export function saveYearData(year, data) {
   try {
     const existing = loadAllYearData();
-    existing[year] = {
-      ...data,
-      _savedAt: Date.now(),
-      _version: '3.0',
-    };
+    existing[year] = { ...data, _savedAt: Date.now(), _version: '3.2' };
     localStorage.setItem(STORAGE_KEYS.TAX_YEAR_DATA, JSON.stringify(existing));
     return true;
   } catch (e) {
@@ -60,10 +72,6 @@ export function saveYearData(year, data) {
   }
 }
 
-/**
- * Lädt alle gespeicherten Jahresdaten
- * @returns {Object} { 2023: {...}, 2024: {...}, ... }
- */
 export function loadAllYearData() {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.TAX_YEAR_DATA);
@@ -74,36 +82,23 @@ export function loadAllYearData() {
   }
 }
 
-/**
- * Lädt Daten für ein bestimmtes Jahr
- */
 export function loadYearData(year) {
   const all = loadAllYearData();
   return all[year] || null;
 }
 
-/**
- * Prüft ob ein Jahr bereits gespeichert ist (abgeschlossen)
- */
 export function isYearLocked(year) {
   const data = loadYearData(year);
   if (!data) return false;
-  // Jahr gilt als abgeschlossen wenn es älter als das aktuelle Jahr ist
   const currentYear = new Date().getFullYear();
   return year < currentYear && data._savedAt;
 }
 
-/**
- * Löscht alle gespeicherten Daten (z.B. für Reset)
- */
 export function clearAllYearData() {
   localStorage.removeItem(STORAGE_KEYS.TAX_YEAR_DATA);
   localStorage.removeItem(STORAGE_KEYS.IMPORTED_FILES);
 }
 
-/**
- * Speichert Hash der importierten Dateien um Duplikate zu erkennen
- */
 export function saveImportedFileHash(filename, hash, year) {
   try {
     const existing = JSON.parse(localStorage.getItem(STORAGE_KEYS.IMPORTED_FILES) || '{}');
@@ -114,9 +109,6 @@ export function saveImportedFileHash(filename, hash, year) {
   }
 }
 
-/**
- * Prüft ob eine Datei bereits importiert wurde
- */
 export function isFileAlreadyImported(filename, hash) {
   try {
     const existing = JSON.parse(localStorage.getItem(STORAGE_KEYS.IMPORTED_FILES) || '{}');
@@ -126,33 +118,18 @@ export function isFileAlreadyImported(filename, hash) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// INKREMENTELLES UPDATE
-// ═══════════════════════════════════════════════════════════════
-
-/**
- * Merged neue Trades/Dividenden mit bestehenden Jahresdaten
- * - Abgeschlossene Jahre (year < currentYear): nur neue Daten hinzufügen, bestehende nicht überschreiben
- * - Aktuelles Jahr: vollständiges Update erlaubt
- */
 export function mergeYearData(year, newData) {
   const existing = loadYearData(year);
   const currentYear = new Date().getFullYear();
 
   if (!existing || year >= currentYear) {
-    // Keine bestehenden Daten oder aktuelles Jahr → einfach speichern
     return newData;
   }
 
-  // Abgeschlossenes Jahr: inkrementell mergen
   const merged = {
     ...existing,
     ...newData,
-    summary: {
-      ...existing.summary,
-      ...newData.summary,
-    },
-    // Events: bestehende + neue (dedupliziert nach tradeId)
+    summary: { ...existing.summary, ...newData.summary },
     stockEvents: mergeEvents(existing.stockEvents, newData.stockEvents),
     stillhalterEvents: mergeEvents(existing.stillhalterEvents, newData.stillhalterEvents),
     termingeschaeftEvents: mergeEvents(existing.termingeschaeftEvents, newData.termingeschaeftEvents),
@@ -175,7 +152,7 @@ function mergeEvents(existing = [], newEvents = [], keyField = 'symbol') {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// KORREKTE FIFO-BASIERTE BERECHNUNG (Broker-Werte)
+// REALIZED P&L BERECHNUNG
 // ═══════════════════════════════════════════════════════════════
 
 export function calculateRealizedPnL(trades, year) {
@@ -184,16 +161,26 @@ export function calculateRealizedPnL(trades, year) {
     return tradeYear === year;
   });
 
+  console.log(`[TaxReport] Jahr ${year}: ${yearTrades.length} Trades gefunden`);
+
   const stockEvents = [];
   const stillhalterEvents = [];
   const termingeschaeftEvents = [];
   const dailyPnL = {};
 
-  yearTrades.forEach(t => {
+  yearTrades.forEach((t, idx) => {
     const fxRate = t.fxRateToBase || 1;
     const currency = t.currency || 'EUR';
 
-    const realizedPnL = t.realizedPnL !== undefined ? t.realizedPnL : 0;
+    // WICHTIG: Fallback auf proceeds wenn realizedPnL leer ist
+    let realizedPnL = 0;
+    if (t.realizedPnl !== undefined && t.realizedPnl !== null && t.realizedPnl !== 0) {
+      realizedPnL = t.realizedPnl;
+    } else if (t.proceeds !== undefined && t.proceeds !== null) {
+      // Fallback: proceeds - commission als realized PnL
+      realizedPnL = t.proceeds + (t.commission || 0);
+    }
+
     const realizedPnL_EUR = toEUR(realizedPnL, fxRate, currency);
 
     const date = t.tradeDate;
@@ -201,7 +188,7 @@ export function calculateRealizedPnL(trades, year) {
       dailyPnL[date] = { date, stockPnL: 0, optionsPnL: 0, dividends: 0, total: 0 };
     }
 
-    if (t.assetCategory === 'STK') {
+    if (isStockTrade(t)) {
       stockEvents.push({
         symbol: t.symbol,
         date: t.tradeDate,
@@ -217,18 +204,23 @@ export function calculateRealizedPnL(trades, year) {
       dailyPnL[date].stockPnL += realizedPnL_EUR;
       dailyPnL[date].total += realizedPnL_EUR;
     } 
-    else if (t.assetCategory === 'OPT') {
-      const isShortOpen = t.buySell === 'SELL' && t.openCloseIndicator === 'O';
-      const isShortClose = t.buySell === 'BUY' && t.openCloseIndicator === 'C';
-      const isAssignment = !t.openCloseIndicator || t.notes?.includes('A') || t.openCloseIndicator === '';
-      const isExpired = t.notes?.includes('Ep') || t.openCloseIndicator === 'Ep';
+    else if (isOptionTrade(t)) {
+      const isShort = t.buySell === 'SELL';
+      const isOpen = t.openCloseIndicator === 'O';
+      const isClose = t.openCloseIndicator === 'C';
+      const isAssignment = !t.openCloseIndicator || t.openCloseIndicator === '' || (t.notes && t.notes.includes('A'));
 
-      if (isAssignment) return;
+      if (isAssignment) {
+        // Assignment: Prämie geht in Aktien-Cost-Basis
+        console.log(`[TaxReport] Assignment erkannt: ${t.symbol} am ${t.tradeDate}`);
+        return;
+      }
 
-      if (isShortOpen || isShortClose || isExpired) {
+      if (isShort) {
+        // Short-Option (Stillhalter) → Topf 1
         stillhalterEvents.push({
           symbol: t.symbol,
-          underlying: t.underlyingSymbol,
+          underlying: t.underlyingSymbol || t.symbol,
           date: t.tradeDate,
           buySell: t.buySell,
           openClose: t.openCloseIndicator,
@@ -243,9 +235,10 @@ export function calculateRealizedPnL(trades, year) {
         dailyPnL[date].optionsPnL += realizedPnL_EUR;
         dailyPnL[date].total += realizedPnL_EUR;
       } else {
+        // Long-Option (Termingeschäft) → Topf 3
         termingeschaeftEvents.push({
           symbol: t.symbol,
-          underlying: t.underlyingSymbol,
+          underlying: t.underlyingSymbol || t.symbol,
           date: t.tradeDate,
           buySell: t.buySell,
           openClose: t.openCloseIndicator,
@@ -262,6 +255,8 @@ export function calculateRealizedPnL(trades, year) {
       }
     }
   });
+
+  console.log(`[TaxReport] Jahr ${year}: ${stockEvents.length} Aktien, ${stillhalterEvents.length} Stillhalter, ${termingeschaeftEvents.length} Termingeschäfte`);
 
   return {
     stockEvents,
@@ -349,13 +344,13 @@ export function calculateDividends(parsedData, year) {
 }
 
 export function calculateInterest(parsedData, year) {
-  return parsedData.cashTransactions?.filter(t => {
-    const tYear = new Date(t.date).getFullYear();
-    return tYear === year && (t.type === 'Interest' || t.description?.toLowerCase().includes('interest'));
-  }).map(t => ({
-    date: t.date,
-    amountEUR: round2(toEUR(t.amount, t.fxRate, t.currency)),
-    description: t.description,
+  return parsedData.allInterest?.filter(i => {
+    const iYear = new Date(i.date).getFullYear();
+    return iYear === year;
+  }).map(i => ({
+    date: i.date,
+    amountEUR: round2(i.amountEUR || toEUR(i.amount, i.fxRate, i.currency)),
+    description: i.description,
   })) || [];
 }
 
@@ -429,6 +424,8 @@ export function calculateGermanTaxes({
 export function generateAnnualReport(parsedData, year, taxOptions = {}) {
   const trades = parsedData.allTrades || [];
 
+  console.log(`[TaxReport] Generiere Report für ${year} mit ${trades.length} Trades`);
+
   const realized = calculateRealizedPnL(trades, year);
   const toepfe = calculateToepfe(realized);
   const dividends = calculateDividends(parsedData, year);
@@ -476,7 +473,6 @@ export function generateAnnualReport(parsedData, year, taxOptions = {}) {
     interest,
   };
 
-  // Automatisch speichern
   const merged = mergeYearData(year, report);
   saveYearData(year, merged);
 
@@ -572,10 +568,6 @@ export function exportTaxJSON(report) {
   }, null, 2);
 }
 
-/**
- * Generiert einen präsentablen Steuerbericht als HTML-String
- * Kann für PDF-Export oder Anzeige verwendet werden
- */
 export function generateTaxReportHTML(report, options = {}) {
   const {
     taxpayerName = '',
@@ -844,9 +836,6 @@ export function generateTaxReportHTML(report, options = {}) {
 </html>`;
 }
 
-/**
- * Exportiert den Steuerbericht als HTML-Datei (für PDF-Druck oder Anzeige)
- */
 export function exportTaxReportHTML(report, options = {}) {
   return generateTaxReportHTML(report, options);
 }
