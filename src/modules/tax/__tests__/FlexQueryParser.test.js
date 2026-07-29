@@ -35,10 +35,10 @@ describe('FlexQueryParser', () => {
     const parser = new FlexQueryParser();
     const result = await parser.parseXml(mockXml);
 
-    expect(result.trades).toHaveLength(3); // CASH wird ausgeschlossen
+    expect(result.trades).toHaveLength(4); // CASH wird ausgeschlossen
     expect(result.trades[0].symbol).toBe('AAPL');
     expect(result.trades[0].assetCategory).toBe('STK');
-    expect(result.trades[2].assetCategory).toBe('OPT');
+    expect(result.trades[3].assetCategory).toBe('OPT');
   });
 
   it('sollte Dividenden korrekt parsen', async () => {

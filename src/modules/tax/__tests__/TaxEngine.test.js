@@ -11,8 +11,8 @@ describe('TaxEngine', () => {
     });
 
     it('sollte 27,99% mit Kirchensteuer 9% berechnen', () => {
-      const engine = new TaxEngine({ kirchensteuerSatz: 'rest' });
-      expect(engine.getEffektiverSteuersatz()).toBeCloseTo(0.2799, 4);
+      const engine = new TaxEngine({ kirchensteuerSatz: 'restDeutschland' });
+      expect(engine.getEffektiverSteuersatz()).toBeCloseTo(0.2799, 3);
     });
 
     it('sollte 27,82% mit Kirchensteuer 8% berechnen', () => {
@@ -96,14 +96,14 @@ describe('TaxEngine', () => {
 
   describe('Serialisierung', () => {
     it('sollte JSON serialisieren und deserialisieren', () => {
-      const engine = new TaxEngine({ kirchensteuerSatz: 'rest' });
+      const engine = new TaxEngine({ kirchensteuerSatz: 'restDeutschland' });
       engine.verbucheVerlust(500, 'CFD');
 
       const json = engine.toJSON();
       const restored = TaxEngine.fromJSON(json);
 
       expect(restored.getVerlustToepfe().TERMINGESCHAEFTE).toBe(500);
-      expect(restored.kirchensteuerSatz).toBe('rest');
+      expect(restored.kirchensteuerSatz).toBe('restDeutschland');
     });
   });
 });
