@@ -1,7 +1,7 @@
 {
   "name": "momentum-trader-de",
-  "version": "1.0.0",
-  "description": "Momentum & Trend Trader Dashboard f\u00fcr den deutschen Markt mit KO-Zertifikaten",
+  "version": "2.2.0",
+  "description": "Momentum & Trend Trader Dashboard für den deutschen Markt mit KO-Zertifikaten",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -19,7 +19,9 @@
     "framer-motion": "^12.0.0",
     "lucide-react": "^0.468.0",
     "tailwindcss": "^4.0.0",
-    "@tailwindcss/vite": "^4.0.0"
+    "@tailwindcss/vite": "^4.0.0",
+    "jspdf": "^2.5.2",
+    "jspdf-autotable": "^3.8.4"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
