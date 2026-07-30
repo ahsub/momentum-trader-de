@@ -8,20 +8,22 @@ import {
   BookOpen,
   Menu,
   X,
-  LayoutDashboard
+  LayoutDashboard,
+  FileText,
+  Calculator
 } from 'lucide-react';
 
 // ─── Panels ───
-import { Search } from 'lucide-react';
-import OptionsScanner from './components/OptionsScanner';
-import { Search } from 'lucide-react';
-import OptionsScanner from './components/OptionsScanner';
 import MomentumPanel from './components/MomentumPanel';
 import TrendPanel from './components/TrendPanel';
 import OrbPanel from './components/OrbPanel';
 import WatchlistPanel from './components/WatchlistPanel';
 import GapScanner from './components/GapScanner';
 import PortfolioPanel from './components/PortfolioPanel';
+
+// ─── NEW: Tax Report Components ───
+import CapTraderImport from './components/CapTraderImport';
+import TaxAnalysis from './components/TaxAnalysis';
 
 // ─── NEW: Paper Mode Toggle ───
 import PaperModeToggle from './components/PaperModeToggle';
@@ -30,7 +32,6 @@ import PaperModeToggle from './components/PaperModeToggle';
 import { usePortfolioStore } from './stores/portfolioStore';
 
 const NAV_ITEMS = [
-  { id: 'scanner', label: 'Options Scanner', icon: Search },
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'momentum', label: 'Momentum', icon: TrendingUp },
   { id: 'trend', label: 'Trend', icon: Activity },
@@ -38,12 +39,16 @@ const NAV_ITEMS = [
   { id: 'watchlist', label: 'Watchlist', icon: List },
   { id: 'gaps', label: 'Gap Scanner', icon: BarChart3 },
   { id: 'portfolio', label: 'Portfolio', icon: BookOpen },
-  { id: 'scanner', label: 'Options Scanner', icon: Search },
+  { id: 'tax', label: 'Steuerreport', icon: FileText },
 ];
 
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // ─── Tax Report State ───
+  const [taxReport, setTaxReport] = useState(null);
+  const [showImport, setShowImport] = useState(false);
 
   // ─── Paper Mode State from Store ───
   const isPaperMode = usePortfolioStore((state) => state.isPaperMode);
@@ -61,16 +66,71 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [togglePaperMode]);
 
+  const handleReportGenerated = (report) => {
+    setTaxReport(report);
+    setShowImport(false);
+    // Auto-switch to tax analysis tab
+    setActiveTab('tax');
+  };
+
   const renderPanel = () => {
     switch (activeTab) {
-      case 'scanner': return <OptionsScanner />;
       case 'momentum': return <MomentumPanel />;
       case 'trend': return <TrendPanel />;
       case 'orb': return <OrbPanel />;
       case 'watchlist': return <WatchlistPanel />;
       case 'gaps': return <GapScanner />;
       case 'portfolio': return <PortfolioPanel />;
-      case 'scanner': return <OptionsScanner />;
+      case 'tax':
+        return (
+          <div className="space-y-6">
+            {/* Tax Report Header with Import Toggle */}
+            <div className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/10">
+                  <Calculator className="h-5 w-5 text-emerald-400" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-100">Steuerreport</h2>
+                  <p className="text-xs text-slate-500">
+                    {taxReport 
+                      ? `Report ${taxReport.year} geladen · ${taxReport.taxpayer}` 
+                      : 'Kein Report geladen'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowImport(!showImport)}
+                className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all ${
+                  showImport
+                    ? 'bg-slate-800 text-slate-300'
+                    : 'bg-emerald-600 text-white hover:bg-emerald-500'
+                }`}
+              >
+                <FileText className="h-4 w-4" />
+                {showImport ? 'Import schließen' : 'CapTrader Import'}
+              </button>
+            </div>
+
+            {/* Import Wizard (collapsible) */}
+            <AnimatePresence>
+              {showImport && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className="overflow-hidden"
+                >
+                  <CapTraderImport onReportGenerated={handleReportGenerated} />
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Tax Analysis Dashboard */}
+            <TaxAnalysis report={taxReport} />
+          </div>
+        );
       default: return <PortfolioPanel />;
     }
   };
@@ -94,7 +154,8 @@ function App() {
                 Momentum Trader
               </h1>
               <p className="text-xs text-slate-500">
-                v2.1.0 · {isPaperMode ? '📋 Paper Trading' : '🔴 Live Mode'}
+                v2.2.0 · {isPaperMode ? '📋 Paper Trading' : '🔴 Live Mode'}
+                {taxReport && ' · 📊 Steuerreport geladen'}
               </p>
             </div>
           </div>
@@ -196,8 +257,9 @@ function App() {
          ═══════════════════════════════════════ */}
       <footer className="border-t border-slate-800 bg-slate-900/50 py-4">
         <div className="mx-auto max-w-7xl px-4 text-center text-xs text-slate-600">
-          Momentum Trader DE v2.1.0 · Built with React 19 + Vite 6 + Tailwind 4
+          Momentum Trader DE v2.2.0 · Built with React 19 + Vite 6 + Tailwind 4
           {isPaperMode && ' · 📋 Paper Trading Active'}
+          {taxReport && ` · 📊 Steuerreport ${taxReport.year}`}
         </div>
       </footer>
     </div>
