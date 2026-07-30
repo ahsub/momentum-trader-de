@@ -22,16 +22,75 @@ import {
   Printer,
   ArrowUpRight,
   ArrowDownRight,
-  Minus,
- CheckCircle
+  CheckCircle,
+  Minus
 } from 'lucide-react';
 import { generateTaxPDF } from '../utils/taxReportPDF.js';
 
 export default function TaxAnalysis({ report }) {
-  const [activeTab, setActiveTab] = useState('overview'); // overview, anlagekap, daily, trades, warnings
+  // ═══ ALL HOOKS FIRST (Rules of Hooks) ═══
+  const [activeTab, setActiveTab] = useState('overview');
   const [expandedDays, setExpandedDays] = useState(new Set());
   const [showRaw, setShowRaw] = useState(false);
 
+  // Derived data via useMemo — always called, even if report is null
+  const summary = report?.summary;
+  const anlageKAP = report?.anlageKAP;
+  const dailyReport = report?.dailyReport;
+  const verlustToepfe = report?.verlustToepfe;
+  const warnings = report?.warnings || [];
+  const errors = report?.errors || [];
+  const year = report?.year;
+  const taxpayer = report?.taxpayer;
+
+  const totalTrades = useMemo(() => {
+    if (!dailyReport) return 0;
+    return dailyReport.reduce((sum, d) => sum + d.trades.length, 0);
+  }, [dailyReport]);
+
+  const winDays = useMemo(() => dailyReport?.filter(d => d.pnl > 0).length || 0, [dailyReport]);
+  const lossDays = useMemo(() => dailyReport?.filter(d => d.pnl < 0).length || 0, [dailyReport]);
+  const flatDays = useMemo(() => dailyReport?.filter(d => d.pnl === 0).length || 0, [dailyReport]);
+
+  const pnlByCategory = useMemo(() => [
+    { name: 'Aktien', value: report?.stockPnL || 0, color: 'bg-blue-500', textColor: 'text-blue-400' },
+    { name: 'Termingeschäfte', value: report?.optionsPnL || 0, color: 'bg-purple-500', textColor: 'text-purple-400' },
+    { name: 'Allgemein (ETF)', value: report?.etfPnL || 0, color: 'bg-amber-500', textColor: 'text-amber-400' },
+  ], [report?.stockPnL, report?.optionsPnL, report?.etfPnL]);
+
+  // ═══ HANDLERS ═══
+  const toggleDay = (date) => {
+    setExpandedDays(prev => {
+      const next = new Set(prev);
+      if (next.has(date)) next.delete(date);
+      else next.add(date);
+      return next;
+    });
+  };
+
+  const handleExportPDF = async () => {
+    if (!report) return;
+    try {
+      await generateTaxPDF(report);
+    } catch (err) {
+      console.error('PDF Export failed:', err);
+      alert('PDF-Export fehlgeschlagen: ' + err.message);
+    }
+  };
+
+  const handleExportCSV = () => {
+    if (!report) return;
+    const csv = generateCSVFromReport(report);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `steuerreport-${year || 'unbekannt'}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // ═══ EARLY RETURN AFTER ALL HOOKS ═══
   if (!report) {
     return (
       <div className="flex flex-col items-center justify-center rounded-xl border border-slate-800 bg-slate-900/50 py-20">
@@ -44,62 +103,7 @@ export default function TaxAnalysis({ report }) {
     );
   }
 
-  const { summary, anlageKAP, dailyReport, verlustToepfe, warnings, errors, year, taxpayer } = report;
-
-  // ─── Derived Data ───
-  const totalTrades = useMemo(() => {
-    if (!dailyReport) return 0;
-    return dailyReport.reduce((sum, d) => sum + d.trades.length, 0);
-  }, [dailyReport]);
-
-  const winDays = useMemo(() => dailyReport?.filter(d => d.pnl > 0).length || 0, [dailyReport]);
-  const lossDays = useMemo(() => dailyReport?.filter(d => d.pnl < 0).length || 0, [dailyReport]);
-  const flatDays = useMemo(() => dailyReport?.filter(d => d.pnl === 0).length || 0, [dailyReport]);
-
-  const pnlByCategory = [
-    { name: 'Aktien', value: report.stockPnL || 0, color: 'bg-blue-500', textColor: 'text-blue-400' },
-    { name: 'Termingeschäfte', value: report.optionsPnL || 0, color: 'bg-purple-500', textColor: 'text-purple-400' },
-    { name: 'Allgemein (ETF)', value: report.etfPnL || 0, color: 'bg-amber-500', textColor: 'text-amber-400' },
-  ];
-
-  // ─── Handlers ───
-  const toggleDay = (date) => {
-    setExpandedDays(prev => {
-      const next = new Set(prev);
-      if (next.has(date)) next.delete(date);
-      else next.add(date);
-      return next;
-    });
-  };
-
-  const handleExportPDF = async () => {
-    try {
-      await generateTaxPDF(report);
-    } catch (err) {
-      console.error('PDF Export failed:', err);
-      alert('PDF-Export fehlgeschlagen: ' + err.message);
-    }
-  };
-
-  const handleExportCSV = () => {
-    if (!report.raw) return;
-    const engine = report.engine || report.raw._engine;
-    // Use the engine's export method if available, otherwise fallback
-    let csv;
-    if (report.raw && typeof report.raw === 'object') {
-      // Simple CSV export from raw data
-      csv = generateCSVFromReport(report);
-    }
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `steuerreport-${year}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  // ─── Render: Overview Tab ───
+  // ═══ RENDER: OVERVIEW TAB ═══
   const renderOverview = () => (
     <div className="space-y-6">
       {/* Summary Cards */}
@@ -218,7 +222,7 @@ export default function TaxAnalysis({ report }) {
     </div>
   );
 
-  // ─── Render: Anlage KAP Tab ───
+  // ═══ RENDER: ANLAGE KAP TAB ═══
   const renderAnlageKap = () => {
     if (!anlageKAP) return null;
 
@@ -272,7 +276,7 @@ export default function TaxAnalysis({ report }) {
     );
   };
 
-  // ─── Render: Daily Tab ───
+  // ═══ RENDER: DAILY TAB ═══
   const renderDaily = () => (
     <div className="space-y-4">
       {dailyReport?.map((day) => {
@@ -368,7 +372,7 @@ export default function TaxAnalysis({ report }) {
     </div>
   );
 
-  // ─── Render: Warnings Tab ───
+  // ═══ RENDER: WARNINGS TAB ═══
   const renderWarnings = () => (
     <div className="space-y-4">
       {errors?.length > 0 && (
@@ -415,7 +419,7 @@ export default function TaxAnalysis({ report }) {
     </div>
   );
 
-  // ─── Tabs ───
+  // ═══ TABS ═══
   const tabs = [
     { id: 'overview', label: 'Übersicht', icon: PieChart },
     { id: 'anlagekap', label: 'Anlage KAP', icon: FileText },
@@ -522,7 +526,7 @@ export default function TaxAnalysis({ report }) {
   );
 }
 
-// ─── Sub-Components ───
+// ═══ SUB-COMPONENTS ═══
 
 function SummaryCard({ title, value, icon: Icon, iconColor, bgColor, suffix = '€' }) {
   return (
@@ -575,7 +579,7 @@ function StatBox({ label, value, color }) {
   );
 }
 
-// ─── Helpers ───
+// ═══ HELPERS ═══
 
 function formatCurrency(value) {
   if (value === undefined || value === null) return '—';
@@ -610,4 +614,3 @@ function generateCSVFromReport(report) {
   }
   return lines.join('\n');
 }
-
