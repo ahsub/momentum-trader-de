@@ -22,7 +22,8 @@ import {
   Printer,
   ArrowUpRight,
   ArrowDownRight,
-  Minus
+  Minus,
+ CheckCircle
 } from 'lucide-react';
 import { generateTaxPDF } from '../utils/taxReportPDF.js';
 
@@ -610,5 +611,3 @@ function generateCSVFromReport(report) {
   return lines.join('\n');
 }
 
-// Need to import CheckCircle for the warnings tab
-import { CheckCircle } from 'lucide-react';
