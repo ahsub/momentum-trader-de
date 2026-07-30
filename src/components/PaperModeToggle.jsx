@@ -1,7 +1,3 @@
-/**
- * 
- */
-cat > src/components/PaperModeToggle.jsx << 'EOF'
 import React from 'react';
 import { motion } from 'framer-motion';
 
@@ -43,7 +39,7 @@ export default function PaperModeToggle({ isPaperMode, onToggle }) {
           </>
         )}
       </motion.div>
-      
+
       <motion.span
         animate={{ 
           backgroundColor: isPaperMode ? '#f59e0b' : '#10b981',
