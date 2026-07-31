@@ -1,394 +1,503 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { loadPortfolioData } from '../services/portfolioBridge';
-import { generateAnnualReport, generateMultiYearReport, exportTaxCSV, calculateGermanTaxes } from '../services/taxReportService';
+// src/components/TaxAnalysis.jsx
+// ═══════════════════════════════════════════════════════════════════════════════
+// Tax Analysis Dashboard v2.0 — Mit Gemeinschaftskonto-Support
+// ═══════════════════════════════════════════════════════════════════════════════
 
-const CHURCH_TAX_RATES = {
-  none: { label: 'Keine', rate: 0 },
-  bw_bayern: { label: 'Baden-Württemberg / Bayern (8%)', rate: 0.08 },
-  other: { label: 'Andere Bundesländer (9%)', rate: 0.09 },
-};
+import { useState, useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  TrendingUp, TrendingDown, AlertTriangle, Download, FileText,
+  ChevronDown, ChevronUp, Euro, Calendar, PieChart, BarChart3,
+  Eye, EyeOff, Printer, ArrowUpRight, ArrowDownRight, CheckCircle,
+  Minus, Users, User
+} from 'lucide-react';
+import { generateTaxPDF } from '../utils/taxReportPDF.js';
 
-// === NULL-SAFE HELPERS ===
-const fmt = (n, digits = 2) => (n != null ? Number(n).toFixed(digits) : '0.00');
-const fmtPct = (n, digits = 2) => (n != null ? Number(n).toFixed(digits) : '0.00');
-const fmtAbs = (n, digits = 2) => (n != null ? Math.abs(Number(n)).toFixed(digits) : '0.00');
+export default function TaxAnalysis({ report }) {
+  // ═══ ALL HOOKS FIRST ═══
+  const [activeTab, setActiveTab] = useState('overview');
+  const [activePerson, setActivePerson] = useState(0); // 0 = Person A, 1 = Person B
+  const [expandedDays, setExpandedDays] = useState(new Set());
+  const [showRaw, setShowRaw] = useState(false);
 
-export default function TaxAnalysis() {
-  const [portfolioData, setPortfolioData] = useState(null);
-  const [reports, setReports] = useState({});
-  const [activeYear, setActiveYear] = useState(2024);
-  const [churchTaxKey, setChurchTaxKey] = useState('none');
-  const [isJointAccount, setIsJointAccount] = useState(false);
-  const [loading, setLoading] = useState(true);
+  // Early derived values
+  const isGemeinschaftskonto = report?.isGemeinschaftskonto || false;
+  const personen = report?.personen || [];
+  const activeReport = isGemeinschaftskonto && personen[activePerson]
+    ? personen[activePerson]
+    : report;
 
-  useEffect(() => {
-    const data = loadPortfolioData();
-    if (data) {
-      setPortfolioData(data);
-      // Generate reports for all available years
-      const years = [2023, 2024];
-      const multiYear = generateMultiYearReport(data, years, { churchTaxKey, isJointAccount });
-      const reportMap = {};
-      multiYear.forEach(r => { reportMap[r.year] = r; });
-      setReports(reportMap);
-    }
-    setLoading(false);
-  }, []);
+  const summary = activeReport?.summary || activeReport?.zusammenfassung;
+  const anlageKAP = activeReport?.anlageKAP;
+  const dailyReport = report?.dailyReport;
+  const verlustToepfe = summary?.verlustvortraege || activeReport?.verlustToepfe;
+  const warnings = report?.warnings || [];
+  const errors = report?.errors || [];
+  const year = report?.year;
+  const taxpayer = isGemeinschaftskonto && personen[activePerson]
+    ? personen[activePerson].person?.name
+    : report?.taxpayer;
 
-  useEffect(() => {
-    if (!portfolioData) return;
-    const years = [2023, 2024];
-    const multiYear = generateMultiYearReport(portfolioData, years, { churchTaxKey, isJointAccount });
-    const reportMap = {};
-    multiYear.forEach(r => { reportMap[r.year] = r; });
-    setReports(reportMap);
-  }, [churchTaxKey, isJointAccount, portfolioData]);
+  const totalTrades = useMemo(() => {
+    if (!dailyReport) return 0;
+    return dailyReport.reduce((sum, d) => sum + d.trades.length, 0);
+  }, [dailyReport]);
 
-  const downloadCSV = useCallback((year) => {
-    const report = reports[year];
-    if (!report) return;
-    const csv = exportTaxCSV(report);
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `Steuerreport_${year}_tagesgenau.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-  }, [reports]);
+  const winDays = useMemo(() => dailyReport?.filter(d => d.pnl > 0).length || 0, [dailyReport]);
+  const lossDays = useMemo(() => dailyReport?.filter(d => d.pnl < 0).length || 0, [dailyReport]);
+  const flatDays = useMemo(() => dailyReport?.filter(d => d.pnl === 0).length || 0, [dailyReport]);
 
-  const downloadAllCSV = useCallback(() => {
-    let allCSV = '\uFEFF';
-    Object.values(reports).forEach(report => {
-      allCSV += `=== JAHR ${report.year} ===\n`;
-      allCSV += exportTaxCSV(report);
-      allCSV += '\n\n';
+  const pnlByCategory = useMemo(() => [
+    { name: 'Aktien', value: report?.stockPnL || 0, color: 'bg-blue-500' },
+    { name: 'Termingeschäfte', value: report?.optionsPnL || 0, color: 'bg-purple-500' },
+    { name: 'Allgemein (ETF)', value: report?.etfPnL || 0, color: 'bg-amber-500' },
+  ], [report?.stockPnL, report?.optionsPnL, report?.etfPnL]);
+
+  // ═══ HANDLERS ═══
+  const toggleDay = (date) => {
+    setExpandedDays(prev => {
+      const next = new Set(prev);
+      if (next.has(date)) next.delete(date);
+      else next.add(date);
+      return next;
     });
-    const blob = new Blob([allCSV], { type: 'text/csv;charset=utf-8;' });
+  };
+
+  const handleExportPDF = async () => {
+    if (!report) return;
+    try {
+      await generateTaxPDF(report);
+    } catch (err) {
+      console.error('PDF Export failed:', err);
+      alert('PDF-Export fehlgeschlagen: ' + err.message);
+    }
+  };
+
+  const handleExportCSV = () => {
+    if (!report) return;
+    const csv = generateCSVFromReport(report);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `Steuerreport_alle_Jahre_tagesgenau.csv`;
-    link.click();
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `steuerreport-${year || 'unbekannt'}.csv`;
+    a.click();
     URL.revokeObjectURL(url);
-  }, [reports]);
+  };
 
-  if (loading) {
-    return <div className="text-slate-400 text-center py-12">Lade Steuerdaten...</div>;
-  }
-
-  if (!portfolioData) {
+  // ═══ EARLY RETURN ═══
+  if (!report) {
     return (
-      <div className="bg-slate-800/50 rounded-xl p-8 text-center">
-        <div className="text-4xl mb-3">📊</div>
-        <h3 className="text-lg font-semibold text-slate-200 mb-2">Kein Portfolio importiert</h3>
-        <p className="text-slate-400 text-sm">
-          Importiere zuerst deine CapTrader Flex-Query XML unter "Portfolio" → "CapTrader Import"
-        </p>
+      <div className="flex flex-col items-center justify-center rounded-xl border border-slate-800 bg-slate-900/50 py-20">
+        <FileText className="mb-4 h-12 w-12 text-slate-600" />
+        <h3 className="text-lg font-semibold text-slate-400">Kein Steuerreport geladen</h3>
+        <p className="mt-2 text-sm text-slate-500">Importiere zuerst dein CapTrader Activity Statement.</p>
       </div>
     );
   }
 
-  const activeReport = reports[activeYear];
-  if (!activeReport) {
-    return <div className="text-slate-400 text-center py-12">Keine Daten für {activeYear}</div>;
-  }
-
-  // === NULL-SAFE DESTRUCTURING ===
-  const tax = activeReport.tax || {};
-  const summary = activeReport.summary || {};
-  const dailyBreakdown = activeReport.dailyBreakdown || [];
-  const fifoDetails = activeReport.fifoDetails || { realizedTrades: [] };
-  const optionsDetails = activeReport.optionsDetails || { positions: [] };
-  const dividends = activeReport.dividends || [];
-
-  return (
+  // ═══ RENDER: OVERVIEW ═══
+  const renderOverview = () => (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-bold text-slate-100">Steuerreport Kapitalerträge</h2>
-          <p className="text-sm text-slate-400">Tagesgenaue Aufstellung aller realisierten Erträge in EUR</p>
-        </div>
-        <div className="flex gap-2">
-          {[2023, 2024].map(year => (
+      {/* Gemeinschaftskonto Personen-Tabs */}
+      {isGemeinschaftskonto && personen.length === 2 && (
+        <div className="flex gap-2 rounded-lg border border-slate-800 bg-slate-900/50 p-1">
+          {personen.map((p, i) => (
             <button
-              key={year}
-              onClick={() => setActiveYear(year)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                activeYear === year
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+              key={i}
+              onClick={() => setActivePerson(i)}
+              className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-all ${
+                activePerson === i
+                  ? 'bg-emerald-500/10 text-emerald-400'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
               }`}
             >
-              {year}
+              <User className="mr-1 inline h-3.5 w-3.5" />
+              {p.person?.name || `Person ${i + 1}`}
+              <span className="ml-1 text-xs opacity-60">({(p.person?.anteil || 0.5) * 100}%)</span>
             </button>
+          ))}
+        </div>
+      )}
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <SummaryCard title="Gesamtergebnis" value={summary?.saldo || 0}
+          icon={summary?.saldo >= 0 ? TrendingUp : TrendingDown}
+          iconColor={summary?.saldo >= 0 ? 'text-emerald-400' : 'text-red-400'}
+          bgColor={summary?.saldo >= 0 ? 'bg-emerald-500/10' : 'bg-red-500/10'} />
+        <SummaryCard title="Gewinne" value={summary?.totalGewinn || 0}
+          icon={ArrowUpRight} iconColor="text-emerald-400" bgColor="bg-emerald-500/10" />
+        <SummaryCard title="Verluste" value={-(summary?.totalVerlust || 0)}
+          icon={ArrowDownRight} iconColor="text-red-400" bgColor="bg-red-500/10" />
+        <SummaryCard title="Trades" value={totalTrades} suffix=""
+          icon={BarChart3} iconColor="text-blue-400" bgColor="bg-blue-500/10" />
+      </div>
+
+      {/* P&L by Category */}
+      <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
+        <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-300">
+          <PieChart className="h-4 w-4 text-slate-500" /> Ergebnis nach Kategorie
+        </h3>
+        <div className="space-y-3">
+          {pnlByCategory.map((cat) => (
+            <div key={cat.name} className="flex items-center gap-4">
+              <div className="w-32 text-sm text-slate-400">{cat.name}</div>
+              <div className="flex-1">
+                <div className="h-6 overflow-hidden rounded-full bg-slate-800">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${Math.min(Math.abs(cat.value) / Math.max(...pnlByCategory.map(c => Math.abs(c.value))) * 100, 100)}%` }}
+                    transition={{ duration: 0.8, ease: 'easeOut' }}
+                    className={`h-full ${cat.color} ${cat.value < 0 ? 'opacity-60' : ''}`}
+                  />
+                </div>
+              </div>
+              <div className={`w-28 text-right text-sm font-mono font-medium ${cat.value >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                {formatCurrency(cat.value)}
+              </div>
+            </div>
           ))}
         </div>
       </div>
 
-      {/* Tax Settings */}
-      <div className="bg-slate-800/50 rounded-xl p-4 space-y-4">
-        <h3 className="font-semibold text-slate-200">Steuerliche Einstellungen</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm text-slate-400 mb-1">Kirchensteuer</label>
-            <select
-              value={churchTaxKey}
-              onChange={(e) => setChurchTaxKey(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200"
-            >
-              {Object.entries(CHURCH_TAX_RATES).map(([key, { label }]) => (
-                <option key={key} value={key}>{label}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              id="joint"
-              checked={isJointAccount}
-              onChange={(e) => setIsJointAccount(e.target.checked)}
-              className="rounded border-slate-600 bg-slate-800 text-emerald-500 w-4 h-4"
-            />
-            <label htmlFor="joint" className="text-sm text-slate-300">
-              Gemeinschaftskonto (€2.000 Sparer-Pauschbetrag)
-            </label>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => downloadCSV(activeYear)}
-              className="flex-1 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm px-3 py-2 rounded-lg transition-colors"
-            >
-              📥 CSV {activeYear}
-            </button>
-            <button
-              onClick={downloadAllCSV}
-              className="flex-1 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm px-3 py-2 rounded-lg transition-colors"
-            >
-              📥 Alle Jahre
-            </button>
-          </div>
-        </div>
-        <p className="text-xs text-slate-500">
-          Sparer-Pauschbetrag: €{isJointAccount ? '2.000' : '1.000'} 
-          {churchTaxKey !== 'none' && ` | Kirchensteuer: ${CHURCH_TAX_RATES[churchTaxKey].label}`}
-        </p>
-      </div>
-
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <TaxCard
-          label="Realisiert Gesamt"
-          value={`€${fmt(summary.totalRealizedPnL_EUR)}`}
-          positive={(summary.totalRealizedPnL_EUR ?? 0) >= 0}
-        />
-        <TaxCard
-          label="Aktien P&L"
-          value={`€${fmt(summary.stockPnL_EUR)}`}
-          positive={(summary.stockPnL_EUR ?? 0) >= 0}
-        />
-        <TaxCard
-          label="Optionen P&L"
-          value={`€${fmt(summary.optionsPnL_EUR)}`}
-          positive={(summary.optionsPnL_EUR ?? 0) >= 0}
-        />
-        <TaxCard
-          label="Dividenden"
-          value={`€${fmt(summary.dividendIncome_EUR)}`}
-          positive={true}
-        />
-      </div>
-
       {/* Tax Calculation */}
-      <div className="bg-slate-800/50 rounded-xl p-4">
-        <h3 className="font-semibold text-slate-200 mb-3">Steuerberechnung</h3>
-        <div className="space-y-2 text-sm">
-          <TaxRow label="Steuerpflichtige Erträge" value={tax.remainingTaxable} />
-          <TaxRow label="Sparer-Pauschbetrag (genutzt)" value={tax.usedAllowance} color="text-emerald-400" />
-          <div className="border-t border-slate-700 my-2" />
-          <TaxRow label="Abgeltungsteuer (25%)" value={-(tax.abgeltungsteuer ?? 0)} />
-          <TaxRow label="Solidaritätszuschlag (5,5%)" value={-(tax.soli ?? 0)} />
-          {(tax.kirchensteuer ?? 0) > 0 && (
-            <TaxRow label={`Kirchensteuer (${fmt(CHURCH_TAX_RATES[churchTaxKey].rate * 100, 0)}%)`} value={-(tax.kirchensteuer ?? 0)} />
-          )}
-          <div className="border-t border-slate-700 my-2" />
-          <TaxRow label="Gesamtsteuer" value={-(tax.totalTax ?? 0)} bold />
-          <TaxRow label="Netto nach Steuern" value={tax.netGain ?? 0} bold positive={(tax.netGain ?? 0) >= 0} />
-          <div className="text-xs text-slate-500 mt-2">
-            Effektiver Steuersatz: {fmtPct(tax.effectiveTaxRate)}%
-          </div>
+      <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
+        <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-300">
+          <Euro className="h-4 w-4 text-slate-500" /> Steuerberechnung
+        </h3>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <TaxCard title="Ohne Kirchensteuer" amount={summary?.steuerOhneKirche || 0} rate="26,375%" highlight={true} />
+          <TaxCard title="Mit Kirchensteuer (9%)" amount={summary?.steuerMitKirche9 || 0} rate="~27,99%" />
+          <TaxCard title="Mit Kirchensteuer (8%)" amount={summary?.steuerMitKirche8 || 0} rate="~27,82%" />
         </div>
       </div>
 
-      {/* Daily Breakdown */}
-      <div className="bg-slate-800/50 rounded-xl p-4">
-        <h3 className="font-semibold text-slate-200 mb-3">
-          Tagesgenaue Aufstellung ({dailyBreakdown.length} Tage)
+      {/* Verlusttöpfe */}
+      <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
+        <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-300">
+          <TrendingDown className="h-4 w-4 text-slate-500" /> Verlusttöpfe (Verlustvorträge)
         </h3>
-        <div className="overflow-x-auto max-h-96">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <VerlusttopfCard title="Aktien" value={verlustToepfe?.AKTIEN || 0} />
+          <VerlusttopfCard title="Allgemein" value={verlustToepfe?.ALLGEMEIN || 0} />
+          <VerlusttopfCard title="Termingeschäfte" value={verlustToepfe?.TERMINGESCHAEFTE || 0} />
+        </div>
+      </div>
+
+      {/* Trading Stats */}
+      <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
+        <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-300">
+          <BarChart3 className="h-4 w-4 text-slate-500" /> Trading-Statistik
+        </h3>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <StatBox label="Plus-Tage" value={winDays} color="text-emerald-400" />
+          <StatBox label="Minus-Tage" value={lossDays} color="text-red-400" />
+          <StatBox label="Flat-Tage" value={flatDays} color="text-slate-400" />
+          <StatBox label="Gesamt-Tage" value={dailyReport?.length || 0} color="text-blue-400" />
+        </div>
+      </div>
+    </div>
+  );
+
+  // ═══ RENDER: ANLAGE KAP ═══
+  const renderAnlageKap = () => {
+    if (!anlageKAP) return null;
+    const zeilen = Object.entries(anlageKAP)
+      .filter(([_, data]) => data.wert !== undefined && data.wert !== 0)
+      .sort((a, b) => a[0].localeCompare(b[0]));
+
+    return (
+      <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-300">
+            <FileText className="h-4 w-4 text-slate-500" /> Anlage KAP — Zeilen-Mapping
+          </h3>
+          <span className="text-xs text-slate-500">Für die Steuererklärung beim Finanzamt</span>
+        </div>
+        <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-slate-800">
-              <tr className="text-slate-500 border-b border-slate-700">
-                <th className="text-left py-2 px-3">Datum</th>
-                <th className="text-right py-2 px-3">Aktien</th>
-                <th className="text-right py-2 px-3">Optionen</th>
-                <th className="text-right py-2 px-3">Dividenden</th>
-                <th className="text-right py-2 px-3">Gesamt</th>
+            <thead>
+              <tr className="border-b border-slate-800">
+                <th className="py-2 pr-4 text-left font-medium text-slate-500">Zeile</th>
+                <th className="py-2 pr-4 text-left font-medium text-slate-500">Beschreibung</th>
+                <th className="py-2 text-right font-medium text-slate-500">Betrag (€)</th>
               </tr>
             </thead>
-            <tbody>
-              {dailyBreakdown.map((day, i) => {
-                const stockPnL = day.stockPnL ?? 0;
-                const optionsPnL = day.optionsPnL ?? 0;
-                const dividendsDay = day.dividends ?? 0;
-                const total = day.total ?? 0;
-                return (
-                  <tr key={i} className="border-b border-slate-800/50 hover:bg-slate-800/30">
-                    <td className="py-2 px-3 font-mono text-slate-300">{day.date || '—'}</td>
-                    <td className={`py-2 px-3 text-right ${stockPnL !== 0 ? (stockPnL > 0 ? 'text-emerald-400' : 'text-red-400') : 'text-slate-500'}`}>
-                      {stockPnL !== 0 ? (stockPnL > 0 ? '+' : '') + fmt(stockPnL) : '—'}
-                    </td>
-                    <td className={`py-2 px-3 text-right ${optionsPnL !== 0 ? (optionsPnL > 0 ? 'text-emerald-400' : 'text-red-400') : 'text-slate-500'}`}>
-                      {optionsPnL !== 0 ? (optionsPnL > 0 ? '+' : '') + fmt(optionsPnL) : '—'}
-                    </td>
-                    <td className={`py-2 px-3 text-right ${dividendsDay !== 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
-                      {dividendsDay !== 0 ? '+' + fmt(dividendsDay) : '—'}
-                    </td>
-                    <td className={`py-2 px-3 text-right font-semibold ${total >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                      {total >= 0 ? '+' : ''}{fmt(total)}
-                    </td>
-                  </tr>
-                );
-              })}
+            <tbody className="divide-y divide-slate-800/50">
+              {zeilen.map(([zeile, data]) => (
+                <tr key={zeile} className="hover:bg-slate-800/30">
+                  <td className="py-2.5 pr-4 font-mono text-xs text-slate-400">{zeile}</td>
+                  <td className="py-2.5 pr-4 text-slate-300">{data.beschreibung}</td>
+                  <td className={`py-2.5 text-right font-mono font-medium ${typeof data.wert === 'number' && data.wert < 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                    {typeof data.wert === 'number' ? formatCurrency(data.wert) : data.wert}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
+        {zeilen.length === 0 && <p className="py-8 text-center text-sm text-slate-500">Keine Anlage KAP Zeilen mit Werten vorhanden.</p>}
       </div>
+    );
+  };
 
-      {/* FIFO Details */}
-      {(fifoDetails.realizedTrades || []).length > 0 && (
-        <div className="bg-slate-800/50 rounded-xl p-4">
-          <h3 className="font-semibold text-slate-200 mb-3">FIFO Details – Aktienverkäufe</h3>
-          <div className="overflow-x-auto max-h-64">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-slate-800">
-                <tr className="text-slate-500 border-b border-slate-700">
-                  <th className="text-left py-2 px-3">Datum</th>
-                  <th className="text-left py-2 px-3">Symbol</th>
-                  <th className="text-right py-2 px-3">Menge</th>
-                  <th className="text-right py-2 px-3">Verkauf €</th>
-                  <th className="text-right py-2 px-3">Kosten €</th>
-                  <th className="text-right py-2 px-3">Realisiert €</th>
-                  <th className="text-right py-2 px-3">Haltedauer</th>
-                </tr>
-              </thead>
-              <tbody>
-                {fifoDetails.realizedTrades.map((t, i) => (
-                  <tr key={i} className="border-b border-slate-800/50 hover:bg-slate-800/30">
-                    <td className="py-2 px-3 font-mono text-slate-300">{t.sellDate || '—'}</td>
-                    <td className="py-2 px-3 font-semibold text-slate-200">{t.symbol || '—'}</td>
-                    <td className="py-2 px-3 text-right text-slate-300">{t.quantity ?? '—'}</td>
-                    <td className="py-2 px-3 text-right text-slate-300">{fmt(t.proceedsEUR)}</td>
-                    <td className="py-2 px-3 text-right text-slate-400">{fmt(t.totalCostEUR)}</td>
-                    <td className={`py-2 px-3 text-right font-semibold ${(t.realizedPnlEUR ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                      {(t.realizedPnlEUR ?? 0) >= 0 ? '+' : ''}{fmt(t.realizedPnlEUR)}
-                    </td>
-                    <td className="py-2 px-3 text-right text-slate-500">{t.holdingPeriodDays ?? '—'} Tage</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Options Details */}
-      {(optionsDetails.positions || []).length > 0 && (
-        <div className="bg-slate-800/50 rounded-xl p-4">
-          <h3 className="font-semibold text-slate-200 mb-3">Options-Details</h3>
-          <div className="space-y-2 max-h-64 overflow-y-auto">
-            {optionsDetails.positions.map((pos, i) => (
-              <div key={i} className="bg-slate-900/50 rounded-lg p-3">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="font-mono font-semibold text-slate-200">
-                    {pos.underlying || '—'} {pos.putCall || ''} {pos.strike || ''} {pos.expiry || ''}
-                  </span>
-                  <span className={`text-sm font-medium ${(pos.netPremiumEUR ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                    {(pos.netPremiumEUR ?? 0) >= 0 ? '+' : ''}€{fmt(pos.netPremiumEUR)}
-                  </span>
-                </div>
-                <div className="text-xs text-slate-500 space-y-1">
-                  {(pos.tradeDetails || []).map((td, j) => (
-                    <div key={j} className="flex justify-between">
-                      <span>{td.date || '—'} – {td.buySell || ''} {td.quantity ?? ''} @ {fmt(td.price)}</span>
-                      <span className={(td.premiumEUR ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}>
-                        {(td.premiumEUR ?? 0) >= 0 ? '+' : ''}€{fmt(td.premiumEUR)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+  // ═══ RENDER: DAILY ═══
+  const renderDaily = () => (
+    <div className="space-y-4">
+      {dailyReport?.map((day) => {
+        const isExpanded = expandedDays.has(day.date);
+        const isWin = day.pnl > 0;
+        const isLoss = day.pnl < 0;
+        return (
+          <motion.div key={day.date} layout className="rounded-xl border border-slate-800 bg-slate-900/50 overflow-hidden">
+            <button onClick={() => toggleDay(day.date)} className="flex w-full items-center justify-between px-6 py-4 hover:bg-slate-800/30 transition-colors">
+              <div className="flex items-center gap-4">
+                <Calendar className="h-4 w-4 text-slate-500" />
+                <span className="text-sm font-medium text-slate-300">
+                  {new Date(day.date).toLocaleDateString('de-DE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                </span>
+                <span className="rounded-full bg-slate-800 px-2 py-0.5 text-xs text-slate-500">{day.trades.length} Trade{day.trades.length !== 1 ? 's' : ''}</span>
               </div>
+              <div className="flex items-center gap-3">
+                <span className={`font-mono text-sm font-medium ${isWin ? 'text-emerald-400' : isLoss ? 'text-red-400' : 'text-slate-400'}`}>
+                  {isWin ? '+' : ''}{formatCurrency(day.pnl)}
+                </span>
+                {isExpanded ? <ChevronUp className="h-4 w-4 text-slate-500" /> : <ChevronDown className="h-4 w-4 text-slate-500" />}
+              </div>
+            </button>
+            <AnimatePresence>
+              {isExpanded && (
+                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+                  <div className="border-t border-slate-800 px-6 py-4">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-800/50">
+                          <th className="pb-2 pr-3 text-left text-slate-500">Symbol</th>
+                          <th className="pb-2 pr-3 text-left text-slate-500">Typ</th>
+                          <th className="pb-2 pr-3 text-right text-slate-500">Menge</th>
+                          <th className="pb-2 pr-3 text-right text-slate-500">Preis</th>
+                          <th className="pb-2 text-right text-slate-500">P&L (€)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/30">
+                        {day.trades.map((trade, i) => (
+                          <tr key={i} className="hover:bg-slate-800/20">
+                            <td className="py-2 pr-3 font-mono text-slate-300">{trade.symbol}</td>
+                            <td className="py-2 pr-3">
+                              <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${trade.buySell === 'BUY' ? 'bg-blue-500/10 text-blue-400' : 'bg-red-500/10 text-red-400'}`}>{trade.buySell}</span>
+                            </td>
+                            <td className="py-2 pr-3 text-right font-mono text-slate-400">{trade.quantity}</td>
+                            <td className="py-2 pr-3 text-right font-mono text-slate-400">{trade.tradePrice?.toFixed(2)}</td>
+                            <td className={`py-2 text-right font-mono font-medium ${(trade.fifoPnlRealizedEUR || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {(trade.fifoPnlRealizedEUR || 0) >= 0 ? '+' : ''}{formatCurrency(trade.fifoPnlRealizedEUR || 0)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.div>
+        );
+      }) || <p className="py-8 text-center text-sm text-slate-500">Keine Tagesdaten vorhanden.</p>}
+    </div>
+  );
+
+  // ═══ RENDER: WARNINGS ═══
+  const renderWarnings = () => (
+    <div className="space-y-4">
+      {errors?.length > 0 && (
+        <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-6">
+          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-red-300">
+            <AlertTriangle className="h-4 w-4" /> Fehler ({errors.length})
+          </h3>
+          <ul className="space-y-2">
+            {errors.map((err, i) => (
+              <li key={i} className="text-sm text-red-200/70">• {err.message || JSON.stringify(err)}</li>
             ))}
-          </div>
+          </ul>
         </div>
       )}
 
-      {/* Dividends */}
-      {(dividends || []).length > 0 && (
-        <div className="bg-slate-800/50 rounded-xl p-4">
-          <h3 className="font-semibold text-slate-200 mb-3">Dividenden</h3>
-          <div className="overflow-x-auto max-h-48">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-slate-800">
-                <tr className="text-slate-500 border-b border-slate-700">
-                  <th className="text-left py-2 px-3">Datum</th>
-                  <th className="text-left py-2 px-3">Symbol</th>
-                  <th className="text-right py-2 px-3">Betrag €</th>
-                  <th className="text-right py-2 px-3">Original</th>
-                  <th className="text-right py-2 px-3">FX-Rate</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dividends.map((d, i) => (
-                  <tr key={i} className="border-b border-slate-800/50">
-                    <td className="py-2 px-3 font-mono text-slate-300">{d.date || '—'}</td>
-                    <td className="py-2 px-3 font-semibold text-slate-200">{d.symbol || '—'}</td>
-                    <td className="py-2 px-3 text-right text-emerald-400">€{fmt(d.amountEUR)}</td>
-                    <td className="py-2 px-3 text-right text-slate-400">{fmt(d.amountOriginal)} {d.currency || ''}</td>
-                    <td className="py-2 px-3 text-right text-slate-500">{fmt(d.fxRate, 4)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      {warnings?.length > 0 ? (
+        <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-6">
+          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-amber-300">
+            <AlertTriangle className="h-4 w-4" /> Warnungen ({warnings.length})
+          </h3>
+          <ul className="space-y-2">
+            {warnings.map((w, i) => (
+              <li key={i} className="text-sm text-amber-200/70">
+                • {w.message || (w.type === 'FX_ABWEICHUNG'
+                  ? `Wechselkurs-Abweichung: ${w.waehrung} am ${w.datum} (EZB: ${w.ezbKurs?.toFixed(6)}, IBKR: ${w.ibkrKurs?.toFixed(6)})`
+                  : w.type === 'FX_NICHT_VALIDIERT'
+                  ? `${w.waehrung}: ${w.anzahl || 1}x nicht validiert am ${w.datum?.split(';')[0]}${w.gruppiert ? ' (gruppiert)' : ''}`
+                  : w.type === 'FX_FEHLEND'
+                  ? `Fehlender Kurs: ${w.waehrung} am ${w.datum}`
+                  : JSON.stringify(w))}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-6 text-center">
+          <CheckCircle className="mx-auto mb-2 h-8 w-8 text-emerald-400" />
+          <p className="text-sm font-medium text-emerald-300">Keine Warnungen</p>
+          <p className="text-xs text-emerald-200/60">Alle Wechselkurse wurden erfolgreich validiert.</p>
         </div>
       )}
     </div>
   );
-}
 
-function TaxCard({ label, value, positive }) {
+  // ═══ TABS ═══
+  const tabs = [
+    { id: 'overview', label: 'Übersicht', icon: PieChart },
+    { id: 'anlagekap', label: 'Anlage KAP', icon: FileText },
+    { id: 'daily', label: 'Tagesbericht', icon: Calendar },
+    { id: 'warnings', label: 'Warnungen', icon: AlertTriangle, badge: warnings?.length },
+  ];
+
   return (
-    <div className="bg-slate-900/50 rounded-lg p-3">
-      <div className="text-xs text-slate-500 mb-1">{label}</div>
-      <div className={`text-lg font-mono font-semibold ${positive === undefined ? 'text-slate-200' : positive ? 'text-emerald-400' : 'text-red-400'}`}>
-        {value}
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-bold text-slate-100">Steuerreport {year}</h2>
+            {isGemeinschaftskonto && <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-xs text-blue-400"><Users className="mr-1 inline h-3 w-3" />Gemeinschaftskonto</span>}
+          </div>
+          <p className="text-sm text-slate-500">
+            {taxpayer} · CapTrader (Interactive Brokers)
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={handleExportCSV} className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2 text-sm font-medium text-slate-300 transition-all hover:bg-slate-800">
+            <Download className="h-4 w-4" /> CSV
+          </button>
+          <button onClick={handleExportPDF} className="flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition-all hover:bg-emerald-500">
+            <Printer className="h-4 w-4" /> PDF
+          </button>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 rounded-lg border border-slate-800 bg-slate-900/50 p-1">
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+              className={`relative flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-all ${isActive ? 'bg-emerald-500/10 text-emerald-400' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}>
+              <Icon className="h-4 w-4" /> {tab.label}
+              {tab.badge > 0 && <span className="ml-1 rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-400">{tab.badge}</span>}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Content */}
+      <AnimatePresence mode="wait">
+        <motion.div key={activeTab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}>
+          {activeTab === 'overview' && renderOverview()}
+          {activeTab === 'anlagekap' && renderAnlageKap()}
+          {activeTab === 'daily' && renderDaily()}
+          {activeTab === 'warnings' && renderWarnings()}
+        </motion.div>
+      </AnimatePresence>
+
+      {/* Raw Data Toggle */}
+      <div className="pt-4 border-t border-slate-800">
+        <button onClick={() => setShowRaw(!showRaw)} className="flex items-center gap-2 text-xs text-slate-500 hover:text-slate-400 transition-colors">
+          {showRaw ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+          {showRaw ? 'Rohdaten ausblenden' : 'Rohdaten anzeigen'}
+        </button>
+        <AnimatePresence>
+          {showRaw && (
+            <motion.pre initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+              className="mt-3 overflow-auto rounded-lg bg-slate-950 p-4 text-xs text-slate-500">
+              {JSON.stringify(report.raw || report, null, 2)}
+            </motion.pre>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
 }
 
-function TaxRow({ label, value, bold, positive, color }) {
-  const cls = bold ? 'font-semibold' : '';
-  const numVal = value != null ? Number(value) : 0;
-  const valCls = color || (positive !== undefined ? (positive ? 'text-emerald-400' : 'text-red-400') : numVal >= 0 ? 'text-emerald-400' : 'text-red-400');
+// ═══ SUB-COMPONENTS ═══
+function SummaryCard({ title, value, icon: Icon, iconColor, bgColor, suffix = '€' }) {
   return (
-    <div className={`flex justify-between ${cls}`}>
-      <span className="text-slate-400">{label}</span>
-      <span className={valCls}>
-        {numVal >= 0 ? '+' : ''}€{fmtAbs(value)}
-      </span>
+    <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${bgColor}`}>
+          <Icon className={`h-4 w-4 ${iconColor}`} />
+        </div>
+        <span className="text-xs font-medium text-slate-500">{title}</span>
+      </div>
+      <p className={`text-2xl font-bold font-mono ${value >= 0 ? 'text-slate-100' : 'text-red-400'}`}>
+        {suffix === '€' ? formatCurrency(value) : value}
+      </p>
     </div>
   );
+}
+
+function TaxCard({ title, amount, rate, highlight = false }) {
+  return (
+    <div className={`rounded-lg border p-4 ${highlight ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-slate-800 bg-slate-900/30'}`}>
+      <p className="text-xs font-medium text-slate-500">{title}</p>
+      <p className="mt-1 text-xl font-bold font-mono text-slate-100">{formatCurrency(amount)}</p>
+      <p className="mt-1 text-xs text-slate-500">Satz: {rate}</p>
+    </div>
+  );
+}
+
+function VerlusttopfCard({ title, value }) {
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-900/30 p-4">
+      <p className="text-xs font-medium text-slate-500">{title}</p>
+      <p className={`mt-1 text-lg font-bold font-mono ${value > 0 ? 'text-red-400' : 'text-slate-400'}`}>{formatCurrency(value)}</p>
+      <p className="mt-1 text-xs text-slate-600">{value > 0 ? 'Verlustvortrag vorhanden' : 'Kein Verlustvortrag'}</p>
+    </div>
+  );
+}
+
+function StatBox({ label, value, color }) {
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-900/30 p-3 text-center">
+      <p className={`text-2xl font-bold font-mono ${color}`}>{value}</p>
+      <p className="mt-1 text-xs text-slate-500">{label}</p>
+    </div>
+  );
+}
+
+// ═══ HELPERS ═══
+function formatCurrency(value) {
+  if (value === undefined || value === null) return '—';
+  const num = typeof value === 'string' ? parseFloat(value) : value;
+  if (isNaN(num)) return '—';
+  return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num);
+}
+
+function generateCSVFromReport(report) {
+  const lines = ['Kategorie;Wert;Hinweis'];
+  if (report.summary) {
+    lines.push(`Jahr;${report.year};`);
+    lines.push(`Steuerpflichtiger;${report.taxpayer};`);
+    lines.push(`Gesamtergebnis;${report.summary.saldo?.toFixed(2) || 0};`);
+    lines.push(`Gewinne;${report.summary.totalGewinn?.toFixed(2) || 0};`);
+    lines.push(`Verluste;${report.summary.totalVerlust?.toFixed(2) || 0};`);
+    lines.push(`Steuer ohne KS;${report.summary.steuerOhneKirche?.toFixed(2) || 0};`);
+    lines.push(`Steuer mit KS 9%;${report.summary.steuerMitKirche9?.toFixed(2) || 0};`);
+    lines.push(`Steuer mit KS 8%;${report.summary.steuerMitKirche8?.toFixed(2) || 0};`);
+  }
+  if (report.anlageKAP) {
+    for (const [zeile, data] of Object.entries(report.anlageKAP)) {
+      if (data.wert !== undefined) {
+        lines.push(`Anlage KAP ${zeile};${typeof data.wert === 'number' ? data.wert.toFixed(2) : data.wert};${data.beschreibung}`);
+      }
+    }
+  }
+  return lines.join('\n');
 }
