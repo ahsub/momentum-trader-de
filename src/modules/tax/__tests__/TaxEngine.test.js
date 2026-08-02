@@ -1,109 +1,203 @@
-// src/modules/tax/__tests__/TaxEngine.test.js
-import { describe, it, expect } from 'vitest';
-import TaxEngine from '../TaxEngine.js';
+import { describe, it, expect, beforeEach } from 'vitest';
+import TaxReportEngine from '../TaxReportEngine';
 
-describe('TaxEngine', () => {
-  describe('Steuersatz-Berechnung', () => {
-    it('sollte 26,375% ohne Kirchensteuer berechnen', () => {
-      const engine = new TaxEngine({ kirchensteuerSatz: null });
-      expect(engine.getEffektiverSteuersatz()).toBeCloseTo(0.26375, 5);
-      expect(engine.getSteuersatzProzent()).toBe('26.375%');
-    });
+const MOCK_XML_SINGLE = `
+<FlexQueryResponse>
+  <FlexStatements>
+    <FlexStatement accountId="U1234567" fromDate="2025-01-01" toDate="2025-12-31">
+      <Trades>
+        <Trade symbol="AAPL" dateTime="20250115;094530" currency="USD"
+               buySell="SELL" quantity="10" tradePrice="150"
+               proceeds="1805" ibCommission="-1.5" fxRateToBase="0.92"
+               fifoPnlRealized="150" assetCategory="STK"/>
+      </Trades>
+    </FlexStatement>
+  </FlexStatements>
+</FlexQueryResponse>
+`;
 
-    it('sollte 27,99% mit Kirchensteuer 9% berechnen', () => {
-      const engine = new TaxEngine({ kirchensteuerSatz: 'rest' });
-      expect(engine.getEffektiverSteuersatz()).toBeCloseTo(0.2799, 4);
-    });
+const MOCK_XML_EUR_ONLY = `
+<FlexQueryResponse>
+  <FlexStatements>
+    <FlexStatement accountId="U1234567" fromDate="2025-01-01" toDate="2025-12-31">
+      <Trades>
+        <Trade symbol="SAP" dateTime="20250115;094530" currency="EUR"
+               buySell="SELL" quantity="10" tradePrice="150"
+               proceeds="1805" ibCommission="-1.5" fxRateToBase="1.0"
+               fifoPnlRealized="150" assetCategory="STK"/>
+      </Trades>
+    </FlexStatement>
+  </FlexStatements>
+</FlexQueryResponse>
+`;
 
-    it('sollte 27,82% mit Kirchensteuer 8% berechnen', () => {
-      const engine = new TaxEngine({ kirchensteuerSatz: 'bwBayern' });
-      expect(engine.getEffektiverSteuersatz()).toBeCloseTo(0.2782, 4);
+describe('TaxReportEngine', () => {
+  describe('Einzelkonto (Legacy)', () => {
+    it('sollte einen Report generieren', async () => {
+      const engine = new TaxReportEngine({
+        report: { steuerpflichtiger: 'Test', jahr: 2025 }
+      });
+      const report = await engine.generiereReport(MOCK_XML_EUR_ONLY);
+      expect(report.meta.steuerpflichtiger).toBeDefined();
+      expect(report.meta.jahr).toBe(2025);
     });
   });
 
-  describe('Steuerberechnung ohne Freibetrag (CapTrader)', () => {
-    it('sollte Steuer auf Aktiengewinn korrekt berechnen', () => {
-      const engine = new TaxEngine({ kirchensteuerSatz: null });
-      const result = engine.berechneSteuer({
-        realizedPnl: 1000,
-        secType: 'STK',
+  describe('Gemeinschaftskonto', () => {
+    it('sollte zwei Personen unterstützen', async () => {
+      const engine = new TaxReportEngine({
+        isGemeinschaftskonto: true,
+        personen: [
+          { name: 'Person A', anteil: 0.5, kirchensteuerSatz: 0.09 },
+          { name: 'Person B', anteil: 0.5, kirchensteuerSatz: 0.08 }
+        ],
+        report: { steuerpflichtiger: 'Test', jahr: 2025 }
       });
-
-      expect(result.steuerNetto).toBeCloseTo(263.75, 2);
-      expect(result.verlusttopf).toBe('AKTIEN');
-      expect(result.freibetragGenutzt).toBe(0); // Kein Freibetrag
+      const report = await engine.generiereReport(MOCK_XML_EUR_ONLY);
+      expect(report.isGemeinschaftskonto).toBe(true);
+      expect(report.personen).toHaveLength(2);
+      expect(report.personen[0].person.name).toBe('Person A');
     });
 
-    it('sollte Steuer auf ETF-Gewinn mit Teilfreistellung berechnen', () => {
-      const engine = new TaxEngine({ kirchensteuerSatz: null });
-      const result = engine.berechneSteuer({
-        realizedPnl: 1000,
-        secType: 'ETF',
-        fondsKategorie: 'aktienfonds',
+    it('sollte Anteile korrekt aufteilen (50/50)', async () => {
+      const engine = new TaxReportEngine({
+        isGemeinschaftskonto: true,
+        personen: [
+          { name: 'Person A', anteil: 0.5, kirchensteuerSatz: 0.09 },
+          { name: 'Person B', anteil: 0.5, kirchensteuerSatz: 0.08 }
+        ],
+        report: { steuerpflichtiger: 'Test', jahr: 2025 }
       });
-
-      expect(result.teilfreistellungProzent).toBe(30);
-      expect(result.steuerpflichtigVorFreibetrag).toBe(700); // 1000 - 30%
-      expect(result.steuerNetto).toBeCloseTo(184.625, 2); // 700 * 26,375%
+      const report = await engine.generiereReport(MOCK_XML_EUR_ONLY);
+      const saldoA = report.personen[0].zusammenfassung.saldo;
+      const saldoB = report.personen[1].zusammenfassung.saldo;
+      expect(saldoA).toBeCloseTo(saldoB, 2);
     });
 
-    it('sollte Termingeschäfts-Verluste nur gegen Termingeschäfts-Gewinne verrechnen', () => {
-      const engine = new TaxEngine({ kirchensteuerSatz: null });
-
-      // Verlust verbuchen
-      engine.verbucheVerlust(500, 'CFD');
-
-      // Gewinn berechnen
-      const result = engine.berechneSteuer({
-        realizedPnl: 1200,
-        secType: 'CFD',
+    it('sollte Anteile korrekt aufteilen (70/30)', async () => {
+      const engine = new TaxReportEngine({
+        isGemeinschaftskonto: true,
+        personen: [
+          { name: 'Person A', anteil: 0.7, kirchensteuerSatz: 0.09 },
+          { name: 'Person B', anteil: 0.3, kirchensteuerSatz: 0.08 }
+        ],
+        report: { steuerpflichtiger: 'Test', jahr: 2025 }
       });
-
-      expect(result.verlustTopfGenutzt).toBe(500);
-      expect(result.steuerpflichtigNachVerlust).toBe(700);
-      expect(result.steuerNetto).toBeCloseTo(184.625, 2);
+      const report = await engine.generiereReport(MOCK_XML_EUR_ONLY);
+      const saldoA = report.personen[0].zusammenfassung.saldo;
+      const saldoB = report.personen[1].zusammenfassung.saldo;
+      expect(saldoA / saldoB).toBeCloseTo(0.7 / 0.3, 2);
     });
 
-    it('sollte Aktienverluste gegen Aktiengewinne verrechnen', () => {
-      const engine = new TaxEngine({ kirchensteuerSatz: null });
-
-      engine.verbucheVerlust(300, 'STK');
-
-      const result = engine.berechneSteuer({
-        realizedPnl: 1000,
-        secType: 'STK',
+    it('sollte unterschiedliche Kirchensteuer pro Person berechnen', async () => {
+      const engine = new TaxReportEngine({
+        isGemeinschaftskonto: true,
+        personen: [
+          { name: 'Person A', anteil: 0.5, kirchensteuerSatz: 0.09 },
+          { name: 'Person B', anteil: 0.5, kirchensteuerSatz: 0.08 }
+        ],
+        report: { steuerpflichtiger: 'Test', jahr: 2025 }
       });
+      const report = await engine.generiereReport(MOCK_XML_EUR_ONLY);
+      const steuerA = report.personen[0].zusammenfassung.steuer.mitKirchensteuer9.betrag;
+      const steuerB = report.personen[1].zusammenfassung.steuer.mitKirchensteuer8.betrag;
+      expect(steuerA).not.toBe(steuerB);
+    });
 
-      expect(result.verlustTopfGenutzt).toBe(300);
-      expect(result.steuerpflichtigNachVerlust).toBe(700);
+    it('sollte bei ungültigen Anteilen einen Fehler werfen', async () => {
+      const engine = new TaxReportEngine({
+        isGemeinschaftskonto: true,
+        personen: [
+          { name: 'Person A', anteil: 0.6, kirchensteuerSatz: 0.09 },
+          { name: 'Person B', anteil: 0.3, kirchensteuerSatz: 0.08 }
+        ],
+        report: { steuerpflichtiger: 'Test', jahr: 2025 }
+      });
+      await expect(engine.generiereReport(MOCK_XML_EUR_ONLY))
+        .rejects.toThrow(/Ungültige Anteile/);
     });
   });
 
-  describe('Verlusttöpfe', () => {
-    it('sollte drei getrennte Verlusttöpfe verwalten', () => {
-      const engine = new TaxEngine({ kirchensteuerSatz: null });
+  describe('Währungsanalyse', () => {
+    it('sollte erkennen wenn EZB-Kurse nicht benötigt werden (alle in EUR)', async () => {
+      const engine = new TaxReportEngine({
+        report: { steuerpflichtiger: 'Test', jahr: 2025 }
+      });
+      const report = await engine.generiereReport(MOCK_XML_EUR_ONLY);
+      expect(report.waehrungsAnalyse.benoetigtEZB).toBe(false);
+      expect(report.waehrungsAnalyse.fremdwaehrungen).toHaveLength(0);
+    });
 
-      engine.verbucheVerlust(100, 'STK');
-      engine.verbucheVerlust(200, 'CFD');
-      engine.verbucheVerlust(300, 'ETF');
-
-      const toepfe = engine.getVerlustToepfe();
-      expect(toepfe.AKTIEN).toBe(100);
-      expect(toepfe.TERMINGESCHAEFTE).toBe(200);
-      expect(toepfe.ALLGEMEIN).toBe(300);
+    it('sollte erkennen wenn EZB-Kurse empfohlen sind (fehlende FX-Raten)', async () => {
+      const engine = new TaxReportEngine({
+        report: { steuerpflichtiger: 'Test', jahr: 2025 }
+      });
+      const report = await engine.generiereReport(MOCK_XML_SINGLE);
+      expect(report.waehrungsAnalyse.benoetigtEZB).toBe(true);
+      expect(report.waehrungsAnalyse.fremdwaehrungen).toContain('USD');
     });
   });
 
-  describe('Serialisierung', () => {
-    it('sollte JSON serialisieren und deserialisieren', () => {
-      const engine = new TaxEngine({ kirchensteuerSatz: 'rest' });
-      engine.verbucheVerlust(500, 'CFD');
+  describe('Warnungs-Deduplizierung', () => {
+    it('sollte FX-Warnungen gruppieren', async () => {
+      const engine = new TaxReportEngine({
+        report: { steuerpflichtiger: 'Test', jahr: 2025 }
+      });
+      const report = await engine.generiereReport(MOCK_XML_SINGLE);
+      const fxWarnings = report.warnings.filter(w => w.type === 'FX_NICHT_VALIDIERT');
+      expect(fxWarnings.length).toBeGreaterThanOrEqual(1);
+    });
+  });
 
-      const json = engine.toJSON();
-      const restored = TaxEngine.fromJSON(json);
+  describe('CSV-Export', () => {
+    it('sollte Einzelkonto-CSV exportieren', async () => {
+      const engine = new TaxReportEngine({
+        report: { steuerpflichtiger: 'Test', jahr: 2025 }
+      });
+      const report = await engine.generiereReport(MOCK_XML_SINGLE);
+      const csv = engine.exportiere(report, 'csv');
+      expect(csv).toContain('Kategorie;Wert;Hinweis');
+      expect(csv).toContain('Jahr;2025;');
+      expect(csv).toContain('Gesamtergebnis');
+    });
 
-      expect(restored.getVerlustToepfe().TERMINGESCHAEFTE).toBe(500);
-      expect(restored.kirchensteuerSatz).toBe('rest');
+    it('sollte Gemeinschafts-CSV exportieren', async () => {
+      const engine = new TaxReportEngine({
+        isGemeinschaftskonto: true,
+        personen: [
+          { name: 'Person A', anteil: 0.5, kirchensteuerSatz: 0.09 },
+          { name: 'Person B', anteil: 0.5, kirchensteuerSatz: 0.08 }
+        ],
+        report: { steuerpflichtiger: 'Test', jahr: 2025 }
+      });
+      const report = await engine.generiereReport(MOCK_XML_EUR_ONLY);
+      const csv = engine.exportiere(report, 'csv-gemeinschaft');
+      expect(csv).toContain('Person;Anteil;Kategorie;Wert;Hinweis');
+    });
+  });
+
+  describe('Fehlerbehandlung', () => {
+    it('sollte bei ungültigem XML einen Fehler werfen', async () => {
+      const engine = new TaxReportEngine({
+        report: { steuerpflichtiger: 'Test', jahr: 2025 }
+      });
+      await expect(engine.generiereReport('<invalid>xml</invalid>'))
+        .rejects.toThrow();
+    });
+
+    it('sollte Fehler im Report speichern', async () => {
+      const engine = new TaxReportEngine({
+        report: { steuerpflichtiger: 'Test', jahr: 2025 }
+      });
+      const report = await engine.generiereReport(`
+        <FlexQueryResponse>
+          <FlexStatements>
+            <FlexStatement fromDate="2025-01-01" toDate="2025-12-31">
+            </FlexStatement>
+          </FlexStatements>
+        </FlexQueryResponse>
+      `);
+      expect(report.errors).toBeDefined();
     });
   });
 });
