@@ -12,8 +12,8 @@ class TaxReportEngine {
       jahr = new Date().getFullYear(),
       kirchensteuer = false,
       kirchensteuerSatz = 0,
-      gemeinschaftskonto = false,
-      personen = [],
+      gemeinschaftskonto = this.isGemeinschaftskonto,
+      personen = this.personen,
       ezbKurse = null
     } = options;
 
@@ -36,25 +36,7 @@ class TaxReportEngine {
       if (!statement) {
         // FIX: Throw error for invalid XML (no statement found)
         throw new Error('Ungültiges XML: Keine Daten gefunden');
-        meta = {
-          jahr,
-          steuerpflichtiger,
-          broker: 'CapTrader (Interactive Brokers)',
-          version: '1.0.0',
-          steuerabzug: 'Kein (auslaendischer Broker)',
-          erstelltAm: new Date().toISOString()
-        };
-        detailDaten = this._createEmptyDetailDaten();
-        anlageKAP = this._createEmptyAnlageKAP();
-        warnings = [];
-        waehrungsAnalyse = {
-          benoetigtEZB: false,
-          fremdwaehrungen: [],
-          anzahlTrades: 0,
-          fehlendeFX: 0,
-          empfehlung: 'Alle Trades in EUR — keine Waehrungsanalyse noetig'
-        };
-      } else {
+      }
         // Extract trades
         const trades = this._parseTrades(doc);
         const currencies = [...new Set(trades.map(t => t.waehrung))];
@@ -142,33 +124,7 @@ class TaxReportEngine {
       return report;
 
     } catch (err) {
-      // For truly invalid XML, still return a report with error
-      if (err.message.includes('Ungueltiges XML')) {
-        return {
-          meta: {
-            jahr,
-            steuerpflichtiger,
-            broker: 'CapTrader (Interactive Brokers)',
-            version: '1.0.0',
-            steuerabzug: 'Kein (auslaendischer Broker)',
-            erstelltAm: new Date().toISOString(),
-            fehler: true
-          },
-          zusammenfassung: this._createEmptyZusammenfassung(),
-          detailDaten: this._createEmptyDetailDaten(),
-          anlageKAP: this._createEmptyAnlageKAP(),
-          warnings: [],
-          errors: [{ message: err.message, stack: err.stack }],
-          waehrungsAnalyse: {
-            benoetigtEZB: false,
-            fremdwaehrungen: [],
-            anzahlTrades: 0,
-            fehlendeFX: 0,
-            empfehlung: 'Fehler bei XML-Verarbeitung'
-          },
-          fifoValidation: { valid: false, errors: [err.message], warnings: [], positionen: {} }
-        };
-      }
+      // FIX: Re-throw all errors including XML errors
       throw err;
     }
   }
