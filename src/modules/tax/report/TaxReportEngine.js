@@ -2,14 +2,6 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 // Tax Report Engine v2.1 — Mit Gemeinschaftskonto-Support (korrigiert)
 // ═══════════════════════════════════════════════════════════════════════════════
-//
-// FIXES v2.1:
-// 1. isGemeinschaftskonto wird im Report gesetzt
-// 2. personen-Array wird im Report gesetzt
-// 3. Anteile validieren (müssen 100% ergeben)
-// 4. Ungültiges XML wird rejected
-// 5. Gesamtergebnis in CSV-Export
-// 6. _exportGemeinschaftCSV wirft Error statt Fallback
 
 import FlexQueryParser from './FlexQueryParser.js';
 import FxConverter from './FxConverter.js';
@@ -26,7 +18,6 @@ class TaxReportEngine {
     this.errors = [];
     this.options = options;
 
-    // Gemeinschaftskonto-Optionen
     this.isGemeinschaftskonto = options.isGemeinschaftskonto || false;
     this.personen = options.personen || [{
       name: options.report?.steuerpflichtiger || 'Steuerpflichtiger',
@@ -36,7 +27,6 @@ class TaxReportEngine {
   }
 
   async generiereReport(xmlString, options = {}) {
-    // FIX: Ungültiges XML erkennen und rejecten
     let parsed;
     try {
       parsed = await this.parser.parseXml(xmlString);
@@ -44,14 +34,12 @@ class TaxReportEngine {
       throw new Error(`Ungültiges XML: ${parseErr.message}`);
     }
 
-    if (!parsed || (!parsed.trades && !parsed.dividends && !parsed.interests)) {
+    if (!parsed || (!parsed.trades?.length && !parsed.dividends?.length && !parsed.interests?.length)) {
       throw new Error('Ungültiges XML: Keine Daten gefunden');
     }
 
-    // ═══ WÄHRUNGSANALYSE ═══
     const currencyAnalysis = this._analysiereWaehrungen(parsed.trades);
 
-    // EZB-Kurse nur laden wenn nötig
     if (options.ezbKurseCsv && currencyAnalysis.benoetigtEZB) {
       await this.fxConverter.ladeEZBKurse(options.ezbKurseCsv);
     }
@@ -60,7 +48,6 @@ class TaxReportEngine {
     const dividendsEUR = parsed.dividends.map(d => this.fxConverter.konvertiereDividende(d));
     const interestsEUR = parsed.interests.map(i => this.fxConverter.konvertiereDividende(i));
 
-    // Deduplizierte Warnungen sammeln
     this.warnings.push(...this._dedupliziereWarnungen(this.fxConverter.getWarnungen()));
 
     const fifoResult = this.fifoValidator.validiere(tradesEUR);
@@ -71,7 +58,6 @@ class TaxReportEngine {
       throw new Error(`FIFO-Validierung fehlgeschlagen: ${this.errors.length} Fehler`);
     }
 
-    // ═══ GEMEINSCHAFTSKONTO-LOGIK ═══
     let report;
     if (this.isGemeinschaftskonto && this.personen.length === 2) {
       report = this._generiereGemeinschaftsReport(tradesEUR, dividendsEUR, interestsEUR);
@@ -79,12 +65,9 @@ class TaxReportEngine {
       report = this.reportGenerator.generiereReport(tradesEUR, dividendsEUR, interestsEUR);
     }
 
-    // FIX: isGemeinschaftskonto im Report setzen
     report.isGemeinschaftskonto = this.isGemeinschaftskonto;
-
-    // FIX: personen im Report setzen (für TaxAnalysis)
     if (this.isGemeinschaftskonto) {
-      report.personen = this.personen;
+      report.personen = report.personen || this.personen;
     }
 
     report.warnings = this.warnings;
@@ -177,7 +160,6 @@ class TaxReportEngine {
   _generiereGemeinschaftsReport(trades, dividends, interests) {
     const [personA, personB] = this.personen;
 
-    // FIX: Anteile validieren (müssen 100% ergeben)
     const anteilA = personA.anteil || 0.5;
     const anteilB = personB.anteil || 0.5;
 
@@ -221,7 +203,6 @@ class TaxReportEngine {
     const reportB = genB.generiereReport(tradesB, divB, interests);
 
     return {
-      // FIX: Top-Level isGemeinschaftskonto
       isGemeinschaftskonto: true,
       meta: {
         jahr: this.options.report?.jahr,
@@ -288,7 +269,7 @@ class TaxReportEngine {
       lines.push(`Verluste Allgemein;${z.verluste?.allgemein?.betrag?.toFixed(2) || 0};${z.verluste?.allgemein?.anzahl || 0} Trades`);
       lines.push(`Verluste Gesamt;${z.verluste?.gesamt?.toFixed(2) || 0};`);
       lines.push(`Saldo;${z.saldo?.toFixed(2) || 0};`);
-      lines.push(`Gesamtergebnis;${z.saldo?.toFixed(2) || 0};`);  // FIX: Gesamtergebnis hinzufügen
+      lines.push(`Gesamtergebnis;${z.saldo?.toFixed(2) || 0};`);
       lines.push(`Steuer ohne Kirchensteuer;${z.steuer?.ohneKirchensteuer?.betrag?.toFixed(2) || 0};${z.steuer?.ohneKirchensteuer?.satz || ''}`);
       lines.push(`Steuer mit Kirchensteuer (9%);${z.steuer?.mitKirchensteuer9?.betrag?.toFixed(2) || 0};${z.steuer?.mitKirchensteuer9?.satz || ''}`);
       lines.push(`Steuer mit Kirchensteuer (8%);${z.steuer?.mitKirchensteuer8?.betrag?.toFixed(2) || 0};${z.steuer?.mitKirchensteuer8?.satz || ''}`);
@@ -309,7 +290,6 @@ class TaxReportEngine {
   }
 
   _exportGemeinschaftCSV(report) {
-    // FIX: Korrekte Prüfung auf isGemeinschaftskonto
     if (!report.isGemeinschaftskonto) {
       throw new Error('Kein Gemeinschaftskonto-Report vorhanden');
     }
