@@ -1,44 +1,10 @@
 import React, { useState } from 'react';
-import { 
-  ChartPie, 
-  FileText, 
-  Calendar, 
-  TriangleAlert, 
-  Download, 
-  Printer, 
-  Eye, 
-  ChevronDown
-} from 'lucide-react';
+import { Download, FileText, AlertTriangle, ChevronDown, ChevronUp, Info } from 'lucide-react';
 
-// Use inline SVG components for icons that might not exist in this lucide version
-const CheckCircleIcon = (props) => (
-  <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>
-  </svg>
-);
-
-const UsersIcon = (props) => (
-  <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-  </svg>
-);
-
-const TABS = [
-  { id: 'overview', label: 'Übersicht', icon: ChartPie },
-  { id: 'anlage', label: 'Anlage KAP', icon: FileText },
-  { id: 'daily', label: 'Tagesbericht', icon: Calendar },
-  { id: 'warnings', label: 'Warnungen', icon: TriangleAlert },
-];
-
-function formatCurrency(value) {
-  return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(value);
-}
-
-export default function TaxAnalysis({ report }) {
+const TaxAnalysis = ({ report }) => {
   const [activeTab, setActiveTab] = useState('overview');
-  const [expandedDays, setExpandedDays] = useState({});
-  const [showRaw, setShowRaw] = useState(false);
-  const [activePerson, setActivePerson] = useState(0);
+  const [expandedDays, setExpandedDays] = useState(new Set());
+  const [showRawData, setShowRawData] = useState(false);
 
   if (!report) {
     return (
@@ -50,298 +16,327 @@ export default function TaxAnalysis({ report }) {
     );
   }
 
-  const { meta, zusammenfassung, detailDaten, warnings, errors } = report;
-  const isGemeinschaft = report.isGemeinschaftskonto;
-  const personen = report.personen || [];
+  const { meta, detailDaten, warnings, errors, isGemeinschaftskonto, personen } = report;
 
-  const toggleDay = (date) => {
-    setExpandedDays(prev => ({ ...prev, [date]: !prev[date] }));
+  // FIX: Null-safe zusammenfassung
+  const zusammenfassung = report.zusammenfassung || {
+    gewinne: { gesamt: 0, aktien: { betrag: 0, anzahl: 0 }, termingeschaefte: { betrag: 0, anzahl: 0 }, allgemein: { betrag: 0, anzahl: 0 } },
+    verluste: { gesamt: 0, aktien: { betrag: 0, anzahl: 0 }, termingeschaefte: { betrag: 0, anzahl: 0 }, allgemein: { betrag: 0, anzahl: 0 } },
+    saldo: 0,
+    steuer: { ohneKirchensteuer: { betrag: 0, satz: '26,375%' }, mitKirchensteuer9: { betrag: 0, satz: '27,99%' }, mitKirchensteuer8: { betrag: 0, satz: '27,82%' } },
+    verlustvortraege: { AKTIEN: 0, ALLGEMEIN: 0, TERMINESCHAEFTE: 0 }
+  };
+
+  const formatCurrency = (value) => {
+    if (value === undefined || value === null) return '0,00 €';
+    return new Intl.NumberFormat('de-DE', {
+      style: 'currency',
+      currency: 'EUR',
+      minimumFractionDigits: 2
+    }).format(value);
+  };
+
+  const formatDate = (dateStr) => {
+    if (!dateStr) return '';
+    const [date] = dateStr.split(';');
+    const year = date.slice(0, 4);
+    const month = date.slice(4, 6);
+    const day = date.slice(6, 8);
+    return `${day}.${month}.${year}`;
+  };
+
+  const toggleDay = (day) => {
+    const newExpanded = new Set(expandedDays);
+    if (newExpanded.has(day)) {
+      newExpanded.delete(day);
+    } else {
+      newExpanded.add(day);
+    }
+    setExpandedDays(newExpanded);
   };
 
   const renderOverview = () => (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div className="rounded-xl border p-6 border-emerald-500/20 bg-emerald-500/5">
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
           <p className="text-sm text-slate-500">Gesamtergebnis</p>
-          <p className="mt-2 text-2xl font-bold font-mono text-emerald-400">
+          <p className={`mt-2 text-2xl font-bold font-mono ${(zusammenfassung.saldo || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
             {formatCurrency(zusammenfassung.saldo)}
           </p>
         </div>
-        <div className="rounded-xl border p-6 border-slate-800 bg-slate-900/50">
+        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
           <p className="text-sm text-slate-500">Gewinne</p>
           <p className="mt-2 text-2xl font-bold font-mono text-emerald-400">
-            {formatCurrency(zusammenfassung.gewinne.gesamt)}
+            {formatCurrency(zusammenfassung.gewinne?.gesamt)}
+          </p>
+          <p className="text-xs text-slate-600 mt-1">
+            {zusammenfassung.gewinne?.aktien?.anzahl || 0} Aktien / {zusammenfassung.gewinne?.termingeschaefte?.anzahl || 0} Termin
           </p>
         </div>
-        <div className="rounded-xl border p-6 border-slate-800 bg-slate-900/50">
+        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
           <p className="text-sm text-slate-500">Verluste</p>
           <p className="mt-2 text-2xl font-bold font-mono text-red-400">
-            {formatCurrency(-zusammenfassung.verluste.gesamt)}
+            {formatCurrency(zusammenfassung.verluste?.gesamt)}
+          </p>
+          <p className="text-xs text-slate-600 mt-1">
+            {zusammenfassung.verluste?.aktien?.anzahl || 0} Aktien / {zusammenfassung.verluste?.termingeschaefte?.anzahl || 0} Termin
           </p>
         </div>
       </div>
 
+      {/* Tax Calculation */}
       <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
-        <h3 className="mb-4 text-lg font-semibold text-slate-100">Steuerberechnung</h3>
+        <h3 className="text-lg font-semibold text-white mb-4">Steuerberechnung</h3>
         <div className="space-y-3">
-          <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-800/30 p-3">
-            <span className="text-sm text-slate-400">Ohne Kirchensteuer</span>
-            <span className="font-mono text-sm text-slate-200">
-              {formatCurrency(zusammenfassung.steuer.ohneKirchensteuer.betrag)}
-            </span>
+          <div className="flex justify-between items-center py-2 border-b border-slate-800">
+            <span className="text-slate-400">Ohne Kirchensteuer (26,375%)</span>
+            <span className="font-mono text-white">{formatCurrency(zusammenfassung.steuer?.ohneKirchensteuer?.betrag)}</span>
           </div>
-          <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-800/30 p-3">
-            <span className="text-sm text-slate-400">Mit Kirchensteuer (9%)</span>
-            <span className="font-mono text-sm text-slate-200">
-              {formatCurrency(zusammenfassung.steuer.mitKirchensteuer9.betrag)}
-            </span>
+          <div className="flex justify-between items-center py-2 border-b border-slate-800">
+            <span className="text-slate-400">Mit Kirchensteuer 9% (27,99%)</span>
+            <span className="font-mono text-white">{formatCurrency(zusammenfassung.steuer?.mitKirchensteuer9?.betrag)}</span>
           </div>
-          <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-800/30 p-3">
-            <span className="text-sm text-slate-400">Mit Kirchensteuer (8%)</span>
-            <span className="font-mono text-sm text-slate-200">
-              {formatCurrency(zusammenfassung.steuer.mitKirchensteuer8.betrag)}
-            </span>
+          <div className="flex justify-between items-center py-2">
+            <span className="text-slate-400">Mit Kirchensteuer 8% (27,82%)</span>
+            <span className="font-mono text-white">{formatCurrency(zusammenfassung.steuer?.mitKirchensteuer8?.betrag)}</span>
           </div>
         </div>
       </div>
 
+      {/* Loss Pots */}
       <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
-        <h3 className="mb-4 text-lg font-semibold text-slate-100">Verlusttöpfe</h3>
-        <div className="space-y-3">
-          {Object.entries(zusammenfassung.verlustvortraege || {}).map(([key, value]) => (
-            <div key={key} className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-800/30 p-3">
-              <span className="text-sm text-slate-400">
-                {key === 'AKTIEN' ? 'Aktien' : key === 'ALLGEMEIN' ? 'Allgemein' : 'Termingeschäfte'}
-              </span>
-              <span className="font-mono text-sm text-slate-200">{formatCurrency(value)}</span>
-            </div>
-          ))}
+        <h3 className="text-lg font-semibold text-white mb-4">Verlusttöpfe</h3>
+        <div className="grid grid-cols-3 gap-4">
+          <div className="text-center">
+            <p className="text-sm text-slate-500">Aktien</p>
+            <p className="text-xl font-mono text-white">{formatCurrency(zusammenfassung.verlustvortraege?.AKTIEN)}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-sm text-slate-500">Allgemein</p>
+            <p className="text-xl font-mono text-white">{formatCurrency(zusammenfassung.verlustvortraege?.ALLGEMEIN)}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-sm text-slate-500">Termingeschäfte</p>
+            <p className="text-xl font-mono text-white">{formatCurrency(zusammenfassung.verlustvortraege?.TERMINESCHAEFTE)}</p>
+          </div>
         </div>
       </div>
     </div>
   );
 
-  const renderAnlageKAP = () => (
+  const renderKap = () => (
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-slate-100">Anlage KAP</h3>
-      <div className="space-y-2">
-        {report.anlageKAP && Object.entries(report.anlageKAP).map(([key, zeile]) => (
-          <div key={key} className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-800/30 p-3">
+      <h3 className="text-lg font-semibold text-white">Anlage KAP — Zeilen-Mapping</h3>
+      {report.anlageKAP && Object.entries(report.anlageKAP).map(([zeile, data]) => (
+        <div key={zeile} className={`rounded-xl border p-4 ${data.wichtig ? 'border-amber-500/50 bg-amber-500/10' : 'border-slate-800 bg-slate-900/50'}`}>
+          <div className="flex justify-between items-start">
             <div>
-              <span className="text-sm text-slate-300">{zeile.beschreibung}</span>
-              {zeile.hinweis && <p className="text-xs text-slate-500">{zeile.hinweis}</p>}
+              <p className="text-sm font-medium text-white">Zeile {zeile}</p>
+              <p className="text-sm text-slate-400">{data.beschreibung}</p>
+              {data.hinweis && (
+                <p className="text-xs text-slate-500 mt-1">{data.hinweis}</p>
+              )}
             </div>
-            <span className="font-mono text-sm text-slate-200">
-              {typeof zeile.wert === 'boolean' ? (zeile.wert ? 'Ja' : 'Nein') : formatCurrency(zeile.wert)}
-            </span>
+            <div className="text-right">
+              <p className="text-lg font-mono text-white">
+                {typeof data.wert === 'boolean' ? (data.wert ? 'Ja' : 'Nein') : formatCurrency(data.wert)}
+              </p>
+              {data.pflichtfeld && (
+                <span className="text-xs text-amber-400">Pflichtfeld</span>
+              )}
+            </div>
           </div>
-        ))}
-      </div>
+        </div>
+      ))}
     </div>
   );
 
-  const renderDailyReport = () => {
-    const trades = detailDaten?.trades?.aktien || {};
-    const allTrades = [...(trades.gewinne || []), ...(trades.verluste || [])];
-    const groupedByDay = allTrades.reduce((acc, trade) => {
-      const date = trade.datum;
-      if (!acc[date]) acc[date] = [];
-      acc[date].push(trade);
+  const renderDayReport = () => {
+    const trades = detailDaten?.trades;
+    if (!trades) return <p className="text-slate-500">Keine Trades vorhanden</p>;
+
+    const allTrades = [];
+    ['aktien', 'termingeschaefte', 'allgemein'].forEach(cat => {
+      if (trades[cat]) {
+        if (trades[cat].gewinne) allTrades.push(...trades[cat].gewinne);
+        if (trades[cat].verluste) allTrades.push(...trades[cat].verluste);
+      }
+    });
+
+    const tradesByDay = allTrades.reduce((acc, trade) => {
+      const day = trade.date?.split(';')[0] || 'unknown';
+      if (!acc[day]) acc[day] = [];
+      acc[day].push(trade);
       return acc;
     }, {});
 
     return (
       <div className="space-y-4">
-        <h3 className="text-lg font-semibold text-slate-100">Tagesbericht</h3>
-        <div className="space-y-2">
-          {Object.entries(groupedByDay).map(([date, dayTrades]) => {
-            const dayTotal = dayTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
-            return (
-              <div key={date} className="rounded-xl border border-slate-800 bg-slate-900/50">
-                <button 
-                  className="flex w-full items-center justify-between p-4 text-left"
-                  onClick={() => toggleDay(date)}
-                >
-                  <div className="flex items-center gap-3">
-                    <Calendar className="h-4 w-4 text-slate-500" />
-                    <span className="text-sm font-medium text-slate-200">{date}</span>
-                    <span className={`text-sm font-mono ${dayTotal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                      {formatCurrency(dayTotal)}
-                    </span>
-                  </div>
-                  <ChevronDown className={`h-4 w-4 text-slate-500 transition-transform ${expandedDays[date] ? 'rotate-180' : ''}`} />
-                </button>
-                {expandedDays[date] && (
-                  <div className="border-t border-slate-800 px-4 pb-4">
-                    {dayTrades.map((trade, idx) => (
-                      <div key={idx} className="flex items-center justify-between py-2">
-                        <span className="text-sm text-slate-300">{trade.symbol}</span>
-                        <span className={`font-mono text-sm ${trade.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                          {formatCurrency(trade.pnl)}
+        <h3 className="text-lg font-semibold text-white">Tagesbericht</h3>
+        {Object.entries(tradesByDay).sort().map(([day, dayTrades]) => {
+          const isExpanded = expandedDays.has(day);
+          const dayPnl = dayTrades.reduce((sum, t) => sum + (t.fifoPnlRealizedEUR || 0), 0);
+
+          return (
+            <div key={day} className="rounded-xl border border-slate-800 bg-slate-900/50">
+              <button
+                onClick={() => toggleDay(day)}
+                className="w-full flex justify-between items-center p-4 hover:bg-slate-800/50 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                  <span className="font-medium">{formatDate(day)}</span>
+                  <span className="text-sm text-slate-500">({dayTrades.length} Trades)</span>
+                </div>
+                <span className={`font-mono ${dayPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {formatCurrency(dayPnl)}
+                </span>
+              </button>
+
+              {isExpanded && (
+                <div className="border-t border-slate-800 p-4 space-y-2">
+                  {dayTrades.map((trade, idx) => (
+                    <div key={idx} className="flex justify-between items-center py-2 text-sm">
+                      <div className="flex items-center gap-3">
+                        <span className={`px-2 py-0.5 rounded text-xs ${trade.buySell === 'SELL' ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
+                          {trade.buySell}
                         </span>
+                        <span>{trade.symbol}</span>
+                        <span className="text-slate-500">{trade.quantity} @ {trade.tradePrice}</span>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+                      <span className={`font-mono ${(trade.fifoPnlRealizedEUR || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {formatCurrency(trade.fifoPnlRealizedEUR)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     );
   };
 
   const renderWarnings = () => (
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-slate-100">
-        Warnungen {warnings.length > 0 && <span className="text-sm text-amber-400">({warnings.length})</span>}
-      </h3>
-      {warnings.length === 0 ? (
-        <div className="flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-4">
-          <CheckCircleIcon className="h-4 w-4 text-emerald-400" />
-          <p className="text-sm text-emerald-400">Keine Warnungen vorhanden</p>
-        </div>
-      ) : (
+      <h3 className="text-lg font-semibold text-white">Warnungen</h3>
+      {warnings && warnings.length > 0 ? (
         <div className="space-y-2">
-          {warnings.map((warning, idx) => (
-            <div key={idx} className="flex items-start gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-4">
-              <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+          {warnings.map((w, idx) => (
+            <div key={idx} className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+              <AlertTriangle size={16} className="text-amber-400 mt-0.5" />
               <div>
-                <p className="text-sm text-amber-300">{warning.message}</p>
+                <p className="text-sm text-amber-200">{w.message || w}</p>
+                {w.gruppiert && (
+                  <p className="text-xs text-amber-400/70 mt-1">Gruppierte Warnung</p>
+                )}
               </div>
             </div>
           ))}
         </div>
+      ) : (
+        <p className="text-slate-500">Keine Warnungen</p>
       )}
     </div>
   );
 
-  const renderGemeinschaft = () => {
-    if (!isGemeinschaft || personen.length === 0) return null;
-    const currentPerson = personen[activePerson];
-
-    return (
-      <div className="space-y-4">
-        <div className="flex gap-2">
-          {personen.map((person, idx) => (
-            <button
-              key={idx}
-              onClick={() => setActivePerson(idx)}
-              className={`rounded-lg px-4 py-2 text-sm font-medium transition-all ${
-                activePerson === idx 
-                  ? 'bg-emerald-500/10 text-emerald-400' 
-                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-              }`}
-            >
-              {person.name}
-            </button>
-          ))}
-        </div>
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
-          <h3 className="mb-4 text-lg font-semibold text-slate-100">Aufteilung</h3>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-slate-400">Anteil</span>
-              <span className="font-mono text-sm text-slate-200">{(currentPerson.anteil * 100).toFixed(0)}%</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-slate-400">Kirchensteuer</span>
-              <span className="font-mono text-sm text-slate-200">{(currentPerson.kirchensteuerSatz * 100).toFixed(0)}%</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const tabContent = {
-    overview: renderOverview(),
-    anlage: renderAnlageKAP(),
-    daily: renderDailyReport(),
-    warnings: renderWarnings(),
-  };
+  const tabs = [
+    { id: 'overview', label: 'Übersicht' },
+    { id: 'kap', label: 'Anlage KAP' },
+    { id: 'dayreport', label: 'Tagesbericht' },
+    { id: 'warnings', label: `Warnungen (${warnings?.length || 0})` },
+  ];
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-slate-100">
-            Steuerreport {meta.jahr}
-          </h2>
-          <p className="text-sm text-slate-500">
-            {meta.steuerpflichtiger} · {meta.broker}
-            {isGemeinschaft && (
-              <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-2 py-0.5 text-xs text-blue-400">
-                <UsersIcon className="h-3 w-3" />
-                Gemeinschaftskonto
-              </span>
-            )}
-          </p>
+          <h2 className="text-2xl font-bold text-white">Steuerreport {meta?.jahr}</h2>
+          <p className="text-slate-400">{meta?.steuerpflichtiger} · {meta?.broker}</p>
         </div>
-        <div className="flex items-center gap-2">
-          <button className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2 text-sm font-medium text-slate-300 transition-all hover:bg-slate-800">
-            <Download className="h-4 w-4" />
+        <div className="flex gap-2">
+          <button
+            onClick={() => {
+              const csv = report.exportiere ? report.exportiere(report, 'csv') : '';
+              const blob = new Blob([csv], { type: 'text/csv' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `steuerreport_${meta?.jahr}.csv`;
+              a.click();
+            }}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 text-white hover:bg-slate-700 transition-colors"
+          >
+            <Download size={16} />
             CSV
           </button>
-          <button className="flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition-all hover:bg-emerald-500">
-            <Printer className="h-4 w-4" />
+          <button
+            onClick={() => window.print()}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 text-white hover:bg-slate-700 transition-colors"
+          >
+            <FileText size={16} />
             PDF
           </button>
         </div>
       </div>
 
-      {isGemeinschaft && renderGemeinschaft()}
-
-      <div className="flex gap-1 rounded-lg border border-slate-800 bg-slate-900/50 p-1">
-        {TABS.map(tab => {
-          const Icon = tab.icon;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`relative flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-all ${
-                activeTab === tab.id 
-                  ? 'bg-emerald-500/10 text-emerald-400' 
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-              }`}
-            >
-              <Icon className="h-4 w-4" />
-              {tab.label}
-              {tab.id === 'warnings' && warnings.length > 0 && (
-                <span className="ml-1 text-xs">({warnings.length})</span>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="min-h-[300px]">
-        {tabContent[activeTab]}
-      </div>
-
-      {errors && errors.length > 0 && (
-        <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4">
-          <h3 className="mb-2 text-sm font-semibold text-red-400">Fehler</h3>
-          {errors.map((err, idx) => (
-            <p key={idx} className="text-xs text-red-300">{err.message}</p>
+      {/* Gemeinschaftskonto Badge */}
+      {isGemeinschaftskonto && (
+        <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-500/20 text-blue-400 border border-blue-500/30">
+          <Info size={16} />
+          <span>Gemeinschaftskonto</span>
+          {personen && personen.map((p, idx) => (
+            <span key={idx} className="text-sm">
+              {p.name || p.person?.name} ({((p.anteil || p.person?.anteil || 0.5) * 100).toFixed(0)}%)
+            </span>
           ))}
         </div>
       )}
 
-      <div className="pt-4 border-t border-slate-800">
-        <button 
-          onClick={() => setShowRaw(!showRaw)}
-          className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-300"
+      {/* Tabs */}
+      <div className="flex gap-1 border-b border-slate-800">
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${
+              activeTab === tab.id
+                ? 'text-white border-b-2 border-blue-500'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Content */}
+      <div className="mt-6">
+        {activeTab === 'overview' && renderOverview()}
+        {activeTab === 'kap' && renderKap()}
+        {activeTab === 'dayreport' && renderDayReport()}
+        {activeTab === 'warnings' && renderWarnings()}
+      </div>
+
+      {/* Raw Data Toggle */}
+      <div className="pt-6 border-t border-slate-800">
+        <button
+          onClick={() => setShowRawData(!showRawData)}
+          className="text-sm text-slate-500 hover:text-white transition-colors"
         >
-          <Eye className="h-4 w-4" />
-          {showRaw ? 'Rohdaten ausblenden' : 'Rohdaten anzeigen'}
+          {showRawData ? 'Rohdaten ausblenden' : 'Rohdaten anzeigen'}
         </button>
-        {showRaw && (
-          <pre className="mt-4 max-h-96 overflow-auto rounded-lg bg-slate-900 p-4 text-xs text-slate-400">
+        {showRawData && (
+          <pre className="mt-4 p-4 rounded-xl bg-slate-900/50 border border-slate-800 overflow-auto text-xs text-slate-400">
             {JSON.stringify(report, null, 2)}
           </pre>
         )}
       </div>
     </div>
   );
-}
+};
+
+export default TaxAnalysis;
