@@ -18,7 +18,7 @@ const TaxAnalysis = ({ report }) => {
 
   const { meta, detailDaten, warnings, errors, isGemeinschaftskonto, personen } = report;
 
-  // FIX: Null-safe zusammenfassung
+  // FIX: Null-safe zusammenfassung with default values
   const zusammenfassung = report.zusammenfassung || {
     gewinne: { gesamt: 0, aktien: { betrag: 0, anzahl: 0 }, termingeschaefte: { betrag: 0, anzahl: 0 }, allgemein: { betrag: 0, anzahl: 0 } },
     verluste: { gesamt: 0, aktien: { betrag: 0, anzahl: 0 }, termingeschaefte: { betrag: 0, anzahl: 0 }, allgemein: { betrag: 0, anzahl: 0 } },
