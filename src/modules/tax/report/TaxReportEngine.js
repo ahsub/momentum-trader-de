@@ -5,6 +5,10 @@ class TaxReportEngine {
     this.isGemeinschaftskonto = options.isGemeinschaftskonto || false;
     this.personen = options.personen || [];
   }
+    this.options = options;
+    this.isGemeinschaftskonto = options.isGemeinschaftskonto || false;
+    this.personen = options.personen || [];
+  }
 
   async generiereReport(xmlString, options = {}) {
     const {
