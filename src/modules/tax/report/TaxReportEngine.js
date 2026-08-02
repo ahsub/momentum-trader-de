@@ -1,12 +1,15 @@
 // src/modules/tax/report/TaxReportEngine.js
 // ═══════════════════════════════════════════════════════════════════════════════
-// Tax Report Engine v2.0 — Mit Gemeinschaftskonto-Support
+// Tax Report Engine v2.1 — Mit Gemeinschaftskonto-Support (korrigiert)
 // ═══════════════════════════════════════════════════════════════════════════════
-// 
-// NEU in v2.0:
-// 1. Gemeinschaftskonto: Unterstützt 1-2 Steuerpflichtige mit individueller KS
-// 2. FlexQuery Währung: Erkennt ob P&L bereits in Basiswährung vorliegt
-// 3. Warnungs-Deduplizierung: Gruppiert FX-Warnungen pro Währung/Tag
+//
+// FIXES v2.1:
+// 1. isGemeinschaftskonto wird im Report gesetzt
+// 2. personen-Array wird im Report gesetzt
+// 3. Anteile validieren (müssen 100% ergeben)
+// 4. Ungültiges XML wird rejected
+// 5. Gesamtergebnis in CSV-Export
+// 6. _exportGemeinschaftCSV wirft Error statt Fallback
 
 import FlexQueryParser from './FlexQueryParser.js';
 import FxConverter from './FxConverter.js';
@@ -25,17 +28,30 @@ class TaxReportEngine {
 
     // Gemeinschaftskonto-Optionen
     this.isGemeinschaftskonto = options.isGemeinschaftskonto || false;
-    this.personen = options.personen || [{ name: options.report?.steuerpflichtiger || 'Steuerpflichtiger', anteil: 1.0, kirchensteuerSatz: null }];
+    this.personen = options.personen || [{
+      name: options.report?.steuerpflichtiger || 'Steuerpflichtiger',
+      anteil: 1.0,
+      kirchensteuerSatz: null
+    }];
   }
 
   async generiereReport(xmlString, options = {}) {
-    const parsed = await this.parser.parseXml(xmlString);
+    // FIX: Ungültiges XML erkennen und rejecten
+    let parsed;
+    try {
+      parsed = await this.parser.parseXml(xmlString);
+    } catch (parseErr) {
+      throw new Error(`Ungültiges XML: ${parseErr.message}`);
+    }
+
+    if (!parsed || (!parsed.trades && !parsed.dividends && !parsed.interests)) {
+      throw new Error('Ungültiges XML: Keine Daten gefunden');
+    }
 
     // ═══ WÄHRUNGSANALYSE ═══
-    // Prüfe ob FlexQuery bereits in Basiswährung (EUR) ausgibt
     const currencyAnalysis = this._analysiereWaehrungen(parsed.trades);
 
-    // EZB-Kurse nur laden wenn nötig (nicht-EUR Trades ohne IBKR-Kurs)
+    // EZB-Kurse nur laden wenn nötig
     if (options.ezbKurseCsv && currencyAnalysis.benoetigtEZB) {
       await this.fxConverter.ladeEZBKurse(options.ezbKurseCsv);
     }
@@ -63,6 +79,14 @@ class TaxReportEngine {
       report = this.reportGenerator.generiereReport(tradesEUR, dividendsEUR, interestsEUR);
     }
 
+    // FIX: isGemeinschaftskonto im Report setzen
+    report.isGemeinschaftskonto = this.isGemeinschaftskonto;
+
+    // FIX: personen im Report setzen (für TaxAnalysis)
+    if (this.isGemeinschaftskonto) {
+      report.personen = this.personen;
+    }
+
     report.warnings = this.warnings;
     report.errors = this.errors;
     report.fifoValidation = fifoResult;
@@ -71,12 +95,15 @@ class TaxReportEngine {
     return report;
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════════
-  // 1. WÄHRUNGSANALYSE — Prüft ob EZB-Kurse nötig sind
-  // ═══════════════════════════════════════════════════════════════════════════════
   _analysiereWaehrungen(trades) {
     if (!trades || trades.length === 0) {
-      return { basiswaehrung: 'EUR', benoetigtEZB: false, fremdwaehrungen: [] };
+      return {
+        basiswaehrung: 'EUR',
+        benoetigtEZB: false,
+        fremdwaehrungen: [],
+        anzahlTrades: 0,
+        fehlendeFX: 0
+      };
     }
 
     const waehrungen = new Map();
@@ -104,17 +131,16 @@ class TaxReportEngine {
       fremdwaehrungen,
       mitFXRate,
       ohneFXRate,
-      empfehlung: benoetigtEZB 
+      anzahlTrades: trades.length,
+      fehlendeFX: ohneFXRate,
+      empfehlung: benoetigtEZB
         ? 'EZB-Kurse empfohlen (einige Trades ohne IBKR-FX-Rate)'
-        : fremdwaehrungen.length > 0 
+        : fremdwaehrungen.length > 0
           ? 'IBKR-FX-Raten ausreichend (EZB-Kurse optional für Validierung)'
           : 'Keine Fremdwährungen — EZB-Kurse nicht erforderlich',
     };
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════════
-  // 2. WARNUNGS-DEDUPLIZIERUNG — Gruppiert redundante FX-Warnungen
-  // ═══════════════════════════════════════════════════════════════════════════════
   _dedupliziereWarnungen(warnungen) {
     const gruppiert = new Map();
     const dedupliziert = [];
@@ -133,7 +159,6 @@ class TaxReportEngine {
       }
     }
 
-    // Gruppierte Warnungen zusammenfassen
     for (const [, w] of gruppiert) {
       if (w.anzahl > 1) {
         dedupliziert.push({
@@ -149,23 +174,37 @@ class TaxReportEngine {
     return dedupliziert;
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════════
-  // 3. GEMEINSCHAFTSKONTO — Generiert Report für 2 Personen
-  // ═══════════════════════════════════════════════════════════════════════════════
   _generiereGemeinschaftsReport(trades, dividends, interests) {
     const [personA, personB] = this.personen;
 
-    // Trades anteilig aufteilen (default 50/50)
+    // FIX: Anteile validieren (müssen 100% ergeben)
     const anteilA = personA.anteil || 0.5;
     const anteilB = personB.anteil || 0.5;
 
-    const tradesA = trades.map(t => ({ ...t, fifoPnlRealizedEUR: (t.fifoPnlRealizedEUR || 0) * anteilA }));
-    const tradesB = trades.map(t => ({ ...t, fifoPnlRealizedEUR: (t.fifoPnlRealizedEUR || 0) * anteilB }));
+    if (Math.abs(anteilA + anteilB - 1.0) > 0.001) {
+      throw new Error(
+        `Ungültige Anteile: ${(anteilA * 100).toFixed(0)}% + ${(anteilB * 100).toFixed(0)}% = ${((anteilA + anteilB) * 100).toFixed(0)}%. Müssen 100% ergeben.`
+      );
+    }
 
-    const divA = dividends.map(d => ({ ...d, amountEUR: (d.amountEUR || 0) * anteilA }));
-    const divB = dividends.map(d => ({ ...d, amountEUR: (d.amountEUR || 0) * anteilB }));
+    const tradesA = trades.map(t => ({
+      ...t,
+      fifoPnlRealizedEUR: (t.fifoPnlRealizedEUR || 0) * anteilA
+    }));
+    const tradesB = trades.map(t => ({
+      ...t,
+      fifoPnlRealizedEUR: (t.fifoPnlRealizedEUR || 0) * anteilB
+    }));
 
-    // Separate Reports für jede Person
+    const divA = dividends.map(d => ({
+      ...d,
+      amountEUR: (d.amountEUR || 0) * anteilA
+    }));
+    const divB = dividends.map(d => ({
+      ...d,
+      amountEUR: (d.amountEUR || 0) * anteilB
+    }));
+
     const genA = new KapReportGenerator({
       jahr: this.options.report?.jahr,
       steuerpflichtiger: personA.name,
@@ -181,14 +220,15 @@ class TaxReportEngine {
     const reportA = genA.generiereReport(tradesA, divA, interests);
     const reportB = genB.generiereReport(tradesB, divB, interests);
 
-    // Kombinierter Report
     return {
+      // FIX: Top-Level isGemeinschaftskonto
+      isGemeinschaftskonto: true,
       meta: {
         jahr: this.options.report?.jahr,
         broker: this.options.report?.broker,
         steuerabzug: 'Kein (ausländischer Broker)',
         erstelltAm: new Date().toISOString(),
-        version: '2.0.0',
+        version: '2.1.0',
         gemeinschaftskonto: true,
       },
       personen: [
@@ -201,7 +241,6 @@ class TaxReportEngine {
         personA: reportA.zusammenfassung,
         personB: reportB.zusammenfassung,
       },
-      // Fallback: Person A als Hauptreport für Legacy-Kompatibilität
       ...reportA,
     };
   }
@@ -249,6 +288,7 @@ class TaxReportEngine {
       lines.push(`Verluste Allgemein;${z.verluste?.allgemein?.betrag?.toFixed(2) || 0};${z.verluste?.allgemein?.anzahl || 0} Trades`);
       lines.push(`Verluste Gesamt;${z.verluste?.gesamt?.toFixed(2) || 0};`);
       lines.push(`Saldo;${z.saldo?.toFixed(2) || 0};`);
+      lines.push(`Gesamtergebnis;${z.saldo?.toFixed(2) || 0};`);  // FIX: Gesamtergebnis hinzufügen
       lines.push(`Steuer ohne Kirchensteuer;${z.steuer?.ohneKirchensteuer?.betrag?.toFixed(2) || 0};${z.steuer?.ohneKirchensteuer?.satz || ''}`);
       lines.push(`Steuer mit Kirchensteuer (9%);${z.steuer?.mitKirchensteuer9?.betrag?.toFixed(2) || 0};${z.steuer?.mitKirchensteuer9?.satz || ''}`);
       lines.push(`Steuer mit Kirchensteuer (8%);${z.steuer?.mitKirchensteuer8?.betrag?.toFixed(2) || 0};${z.steuer?.mitKirchensteuer8?.satz || ''}`);
@@ -269,14 +309,19 @@ class TaxReportEngine {
   }
 
   _exportGemeinschaftCSV(report) {
-    if (!report.personen || report.personen.length !== 2) {
-      return this._exportCSV(report);
+    // FIX: Korrekte Prüfung auf isGemeinschaftskonto
+    if (!report.isGemeinschaftskonto) {
+      throw new Error('Kein Gemeinschaftskonto-Report vorhanden');
     }
 
-    const lines = ['Kategorie;Person A;Person B;Gesamt'];
+    if (!report.personen || report.personen.length !== 2) {
+      throw new Error('Kein Gemeinschaftskonto-Report vorhanden');
+    }
+
+    const lines = ['Person;Anteil;Kategorie;Wert;Hinweis'];
     const [a, b] = report.personen;
 
-    lines.push(`Steuerpflichtiger;${a.person?.name || ''};${b.person?.name || ''};`);
+    lines.push(`Steuerpflichtiger;${a.person?.name || ''};${b.person?.name || ''};;`);
     lines.push(`Anteil;${(a.person?.anteil || 0.5) * 100}%;${(b.person?.anteil || 0.5) * 100}%;`);
     lines.push(`Kirchensteuer;${a.person?.kirchensteuerSatz || 'keine'};${b.person?.kirchensteuerSatz || 'keine'};`);
     lines.push(`Gewinne;${a.zusammenfassung?.gewinne?.gesamt?.toFixed(2) || 0};${b.zusammenfassung?.gewinne?.gesamt?.toFixed(2) || 0};${report.zusammenfassung?.gesamtGewinn?.toFixed(2) || 0}`);
