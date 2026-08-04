@@ -23,7 +23,7 @@ import GapScanner from './components/GapScanner';
 import PortfolioPanel from './components/PortfolioPanel';
 import OptionsScanner from './components/OptionsScanner';
 import CapTraderImport from './components/CapTraderImport';
-import TaxAnalysis from './components/TaxAnalysis';
+import { TaxDemoPage } from './components/tax/TaxDemoPage';
 
 // ─── NEW: Paper Mode Toggle ───
 import PaperModeToggle from './components/PaperModeToggle';
@@ -72,7 +72,7 @@ function App() {
       case 'portfolio': return <PortfolioPanel />;
       case 'scanner': return <OptionsScanner />;
       case 'captrader': return <CapTraderImport />;
-      case 'tax': return <TaxAnalysis />;
+      case 'tax': return <TaxDemoPage />;
       default: return <PortfolioPanel />;
     }
   };
