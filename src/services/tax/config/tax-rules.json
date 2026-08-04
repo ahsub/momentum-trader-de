@@ -1,0 +1,72 @@
+{
+  "version": "2024-01",
+  "description": "Deutsche Steuerregeln Stand 2024+",
+  "lastUpdated": "2026-08-04",
+  "rules": {
+    "equity": {
+      "assetClass": "equity",
+      "taxType": "capital_gains",
+      "taxRate": 0.26375,
+      "holdingPeriodDays": 365,
+      "fifoRequired": true,
+      "lossDeductionAllowed": true,
+      "partialExemptionRate": 0,
+      "specialRules": ["KapSt", "Soli", "Abgeltungsteuer"],
+      "version": "2024-01"
+    },
+    "crypto": {
+      "assetClass": "crypto",
+      "taxType": "income_tax",
+      "taxRate": 0.42,
+      "holdingPeriodDays": 3650,
+      "fifoRequired": true,
+      "lossDeductionAllowed": true,
+      "partialExemptionRate": 0,
+      "specialRules": ["EStG", "10_Jahre_Haltefrist", "FIFO_Pflicht"],
+      "version": "2024-01"
+    },
+    "precious_metal": {
+      "assetClass": "precious_metal",
+      "taxType": "speculative",
+      "taxRate": 0.42,
+      "holdingPeriodDays": 365,
+      "fifoRequired": true,
+      "lossDeductionAllowed": true,
+      "partialExemptionRate": 0,
+      "specialRules": ["23_EStG", "Spekulationsfrist", "Gold_Silber_Platin"],
+      "version": "2024-01"
+    },
+    "derivative": {
+      "assetClass": "derivative",
+      "taxType": "capital_gains",
+      "taxRate": 0.26375,
+      "holdingPeriodDays": 0,
+      "fifoRequired": true,
+      "lossDeductionAllowed": true,
+      "partialExemptionRate": 0,
+      "specialRules": ["Z20", "keine_Haltefrist", "immer_steuerpflichtig"],
+      "version": "2024-01"
+    },
+    "bond": {
+      "assetClass": "bond",
+      "taxType": "capital_gains",
+      "taxRate": 0.26375,
+      "holdingPeriodDays": 0,
+      "fifoRequired": true,
+      "lossDeductionAllowed": true,
+      "partialExemptionRate": 0,
+      "specialRules": ["KapSt", "Anleihen"],
+      "version": "2024-01"
+    }
+  },
+  "changelog": [
+    {
+      "version": "2024-01",
+      "date": "2024-01-01",
+      "changes": [
+        "Krypto-Haltefrist auf 10 Jahre erhöht",
+        "KapSt + Soli bei 26,375%"
+      ]
+    }
+  ]
+}
