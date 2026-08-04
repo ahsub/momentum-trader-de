@@ -1,5 +1,5 @@
 // src/services/tax/TaxStrategyFactory.ts
-import type { AssetClass, TaxRule } from '@/types/tax';
+import { AssetClass, type TaxRule } from '@/types/tax';
 import {
   BaseTaxStrategy,
   EquityStrategy,
